@@ -26,6 +26,72 @@ curl -X POST http://127.0.0.1:8000/api/v1/training-plans/draft \
 
 The draft example returns `status: "placeholder"`, a message stating that AI generation is pending, and `weekly_minutes: 90`. Invalid requests return HTTP 422.
 
+## Run MySQL locally (DF-002)
+
+From the repository root, create `.env` from `.env.example` if you do not already
+have one. Replace both placeholder passwords with distinct local development
+passwords. Compose and the connection check also honor exported variables, which
+take precedence over `.env`.
+
+```sh
+cp -n .env.example .env
+docker compose config --quiet
+docker compose up -d --wait --wait-timeout 90 mysql
+docker compose ps mysql
+```
+
+The health check waits for MySQL to respond on its container TCP port. From
+`backend/`, activate the virtual environment and verify the application user's
+credentials and database through the published host port.
+
+```sh
+python -m pip install -r requirements-dev.txt
+python -m app.db
+```
+
+The check connects to `127.0.0.1` on `MYSQL_HOST_PORT` (default `3307`) and
+reports whether `SELECT 1` returns `1`. The FastAPI endpoints and their tests
+can run independently of MySQL and `.env`.
+
+From the repository root, use `docker compose stop mysql` to stop the service
+or `docker compose down` to remove the container and network while retaining
+the named volume. Run the same `docker compose up` command to start it again.
+MySQL stores its data in the `mysql_data` volume at `/var/lib/mysql`. The
+image creates the application database and user when the volume is first
+initialized. Changes to initialization credentials in `.env` do not update
+accounts stored in an existing volume.
+
+## Apply database migrations
+
+From `backend/`, install the updated dependencies and verify the connection.
+Alembic uses the same local database settings as the connection check.
+
+```sh
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m app.db
+.venv/bin/alembic upgrade head
+.venv/bin/alembic current
+.venv/bin/alembic heads
+.venv/bin/alembic check
+```
+
+The first upgrade creates `users` and records its revision in
+`alembic_version`. Compare the revision IDs from `current` and `heads`, and use
+`SHOW CREATE TABLE users` to inspect the columns and `uq_users_email`.
+`users.created_at` stores UTC in a MySQL `DATETIME` column, which carries no
+time-zone information. The shared engine sets the MySQL session time zone to
+`+00:00` on each new connection, so the database's `CURRENT_TIMESTAMP` default
+produces UTC for inserts through that engine. Other clients must also use a UTC
+session when relying on that default.
+
+For future model changes, start from a database at the current revision and
+run `.venv/bin/alembic revision --autogenerate -m "describe the change"`.
+Review the generated `upgrade()` and `downgrade()` before running
+`upgrade head`. Use `upgrade head --sql` to preview SQL on an empty database
+path without opening a connection. An online upgrade modifies the schema and
+revision history, and MySQL DDL can implicitly commit. Downgrading the first
+revision drops `users` and its data.
+
 ## Run tests
 
 From `backend/`, activate `.venv` and install the development dependencies before running the tests.
