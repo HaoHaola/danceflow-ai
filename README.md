@@ -99,3 +99,50 @@ From `backend/`, activate `.venv` and install the development dependencies befor
 ```sh
 python -m pytest
 ```
+
+## Create and look up a local user (DF-003)
+
+With MySQL running and the migrations applied, start FastAPI and try:
+
+```sh
+curl -X POST http://127.0.0.1:8000/api/v1/users \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"Dancer@example.com"}'
+curl http://127.0.0.1:8000/api/v1/users/1
+```
+
+Use the ID returned by POST in the GET request. POST returns 201 after commit,
+409 for a duplicate email, and 422 for invalid input. GET returns 404 if the
+user is absent. Both responses represent `created_at` as ISO 8601 UTC with a
+`Z` suffix.
+
+Email validation trims surrounding whitespace and normalizes the domain.
+The existing MySQL collation controls uniqueness, including case-insensitive
+comparison under the current default collation. These endpoints are for local
+development. Formal account policies and email ownership verification are
+outside the current implementation.
+
+The regular pytest suite covers API behavior with a simulated Session. To
+verify real MySQL behavior, run the following from the repository root in a
+shell with Docker and the backend virtual environment already prepared.
+The isolated Compose project uses port 13307 and retains its test volume.
+Choose a fresh project name on each run because the generated passwords apply
+only when MySQL initializes a new volume.
+
+```sh
+(
+  set -e
+  export COMPOSE_PROJECT_NAME="danceflow-df003-test-$(openssl rand -hex 4)"
+  export MYSQL_DATABASE=danceflow_df003_test MYSQL_HOST_PORT=13307
+  export MYSQL_USER=danceflow_test
+  export MYSQL_PASSWORD="$(openssl rand -hex 24)"
+  export MYSQL_ROOT_PASSWORD="$(openssl rand -hex 24)"
+  trap 'docker compose --env-file .env.example down' EXIT
+  docker compose --env-file .env.example up -d --wait --wait-timeout 90 mysql
+  (
+    cd backend
+    .venv/bin/alembic upgrade head
+    RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
+  )
+)
+```

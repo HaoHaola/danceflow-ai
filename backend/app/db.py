@@ -1,11 +1,18 @@
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from threading import Lock
 
 from dotenv import load_dotenv
 from sqlalchemy import URL, create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+
+
+_session_factory: sessionmaker[Session] | None = None
+_session_factory_lock = Lock()
 
 
 def create_db_engine() -> Engine:
@@ -43,6 +50,17 @@ def create_db_engine() -> Engine:
             "init_command": "SET SESSION time_zone = '+00:00'",
         },
     )
+
+
+def get_db_session() -> Iterator[Session]:
+    global _session_factory
+    with _session_factory_lock:
+        if _session_factory is None:
+            _session_factory = sessionmaker(bind=create_db_engine())
+        factory = _session_factory
+
+    with factory() as session:
+        yield session
 
 
 def main() -> int:

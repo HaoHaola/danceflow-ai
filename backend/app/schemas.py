@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field, StringConstraints, field_validator
 
 
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -22,3 +22,29 @@ class TrainingPlanDraftResponse(BaseModel):
     status: Literal["placeholder"]
     message: str
     weekly_minutes: int
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def require_address_only(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            if "<" in value or ">" in value:
+                raise ValueError("Enter a single email address without a display name.")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def check_email_length(cls, email: str) -> str:
+        if len(email) > 254:
+            raise ValueError("Email must have at most 254 characters.")
+        return email
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    created_at: AwareDatetime
