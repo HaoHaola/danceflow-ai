@@ -122,31 +122,6 @@ comparison under the current default collation. These endpoints are for local
 development. Formal account policies and email ownership verification are
 outside the current implementation.
 
-The regular pytest suite covers API behavior with a simulated Session. To
-verify real MySQL behavior, run the following from the repository root in a
-shell with Docker and the backend virtual environment already prepared.
-The isolated Compose project uses port 13307 and retains its test volume.
-Choose a fresh project name on each run because the generated passwords apply
-only when MySQL initializes a new volume.
-
-```sh
-(
-  set -e
-  export COMPOSE_PROJECT_NAME="danceflow-df003-test-$(openssl rand -hex 4)"
-  export MYSQL_DATABASE=danceflow_df003_test MYSQL_HOST_PORT=13307
-  export MYSQL_USER=danceflow_test
-  export MYSQL_PASSWORD="$(openssl rand -hex 24)"
-  export MYSQL_ROOT_PASSWORD="$(openssl rand -hex 24)"
-  trap 'docker compose --env-file .env.example down' EXIT
-  docker compose --env-file .env.example up -d --wait --wait-timeout 90 mysql
-  (
-    cd backend
-    .venv/bin/alembic upgrade head
-    RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
-  )
-)
-```
-
 ## Save and read weekly training plans (DF-004)
 
 In Swagger UI at `/docs`, use `POST /api/v1/users` to create a local
@@ -178,12 +153,42 @@ ordered by descending plan ID, with limit 10 by default (range 1–20) and
 offset 0 by default (range 0–10000). A missing user or plan returns 404.
 An existing user with no results on the page receives 200 and an empty list.
 
-To run DF-004's isolated MySQL tests, use the same Compose setup as DF-003 above
-with a fresh project name, `MYSQL_DATABASE=danceflow_df004_test`, and
-`MYSQL_HOST_PORT=13308`. After the test instance is healthy, run from `backend/`:
+## Run MySQL integration tests
+
+The default pytest run skips tests marked `mysql`. Set `RUN_MYSQL_TESTS=1`
+to enable them. The fixture requires an explicitly configured loopback port,
+a non-root test account, and a database named `danceflow_<name>_test`. It
+checks the connected database, UTC session, and Alembic heads before testing.
+Each test reserves its own synthetic user emails and cleans up committed
+sessions, plans, and users belonging to those emails after the test.
+
+Run from the repository root with Docker and the backend virtual environment
+ready. Pick an unused port and a fresh Compose project name for the isolated
+test instance. The command leaves the test volume in place.
 
 ```sh
-.venv/bin/alembic upgrade 472cb4adbf8b
-.venv/bin/alembic upgrade 10f04d5c9b21
-RUN_DF004_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
+(
+  set -e
+  export COMPOSE_PROJECT_NAME="danceflow-mysql-test-$(openssl rand -hex 4)"
+  export MYSQL_DATABASE=danceflow_local_test MYSQL_HOST_PORT=13309
+  export MYSQL_USER=danceflow_test
+  export MYSQL_PASSWORD="$(openssl rand -hex 24)"
+  export MYSQL_ROOT_PASSWORD="$(openssl rand -hex 24)"
+  trap 'docker compose --env-file .env.example down' EXIT
+  docker compose --env-file .env.example up -d --wait --wait-timeout 90 mysql
+  (
+    cd backend
+    .venv/bin/python -m alembic upgrade head
+    .venv/bin/python -m alembic check
+    RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest -m mysql
+  )
+)
+```
+
+With the same test container and environment, either test file can also run
+on its own from `backend/`.
+
+```sh
+RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
+RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
 ```

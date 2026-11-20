@@ -35,7 +35,10 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 | `push`（`main`） | 通過 | 通過 | 通過 |
 | `workflow_dispatch` | 通過 | 通過 | 通過 |
 
-### 後續待辦
+## DF-005.1 共用 MySQL fixtures（本機驗證通過）
 
-- 待部署目標確定後再實作 CD。
-- 整理 DF-003 與 DF-004 的共用 MySQL fixtures，保留專用測試庫的隔離檢查。
+- 集中 MySQL fixture、連線安全檢查和測試資料清理至 `backend/tests/conftest.py`。使用 `RUN_MYSQL_TESTS=1` 啟用，並用 `pytest -m mysql` 選取整合測試。
+- CI 保留 API job，將兩組 MySQL matrix 合併為單一 MySQL 8.4 job，仍執行 Alembic upgrade/check 與 JUnit 檢查。
+- 本機 API **64 passed**，預設 suite **64 passed、5 skipped**。全新隔離 MySQL 8.4 容器的 `upgrade head` 和 `alembic check` 通過。MySQL 合跑 **5 passed、0 skipped**，DF-003、DF-004 單獨執行分別 **1 passed**、**4 passed**。
+- 驗證每輪測試寫入的資料皆已清理，事先放入的獨立 user、plan、session 均保留。未設定啟用 flag 時，5 個案例全部 skipped，JUnit 檢查回傳 exit 1。`actionlint` 與 `git diff --check` 通過。
+- 變更尚待 review 和 GitHub Actions 驗證。CD 待部署目標確定後再實作。

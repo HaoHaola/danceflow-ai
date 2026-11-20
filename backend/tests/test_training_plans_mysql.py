@@ -1,58 +1,17 @@
-import os
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
 
-from app import db
-from app.main import app
 from app.models import TrainingSession
 
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_DF004_MYSQL_TESTS") != "1",
-    reason="Run explicitly against the dedicated DF-004 MySQL test database.",
-)
+pytestmark = pytest.mark.mysql
 
 
-@pytest.fixture
-def mysql_api():
-    if (
-        os.getenv("MYSQL_DATABASE") != "danceflow_df004_test"
-        or os.getenv("MYSQL_HOST_PORT") != "13308"
-        or not os.getenv("MYSQL_USER")
-        or not os.getenv("MYSQL_PASSWORD")
-    ):
-        pytest.fail("Export the dedicated DF-004 database, port, user and password.")
-
-    engine = db.create_db_engine()
-    try:
-        with engine.connect() as connection:
-            assert connection.scalar(text("SELECT DATABASE()")) == "danceflow_df004_test"
-            assert connection.scalar(text("SELECT @@session.time_zone")) == "+00:00"
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "10f04d5c9b21"
-
-        factory = sessionmaker(bind=engine)
-
-        def get_test_session():
-            with factory() as session:
-                yield session
-
-        app.dependency_overrides[db.get_db_session] = get_test_session
-        try:
-            with TestClient(app) as client:
-                yield client, engine
-        finally:
-            app.dependency_overrides.pop(db.get_db_session)
-    finally:
-        engine.dispose()
-
-
-def create_user(client):
-    response = client.post("/api/v1/users", json={"email": f"{uuid4().hex}@example.com"})
+def create_user(client, email):
+    response = client.post("/api/v1/users", json={"email": email})
     assert response.status_code == 201
     return response.json()["id"]
 
@@ -77,10 +36,10 @@ def save_plan(client, payload):
     return response.json()
 
 
-def test_save_read_order_and_paginate(mysql_api):
-    client, _ = mysql_api
-    user_id = create_user(client)
-    other_id = create_user(client)
+def test_save_read_order_and_paginate(mysql_api, mysql_user_email):
+    client = mysql_api
+    user_id = create_user(client, mysql_user_email())
+    other_id = create_user(client, mysql_user_email())
     path = f"/api/v1/users/{user_id}/training-plans"
     assert client.get(path).json() == {"items": [], "limit": 10, "offset": 0}
 
@@ -124,9 +83,8 @@ def test_save_read_order_and_paginate(mysql_api):
         """, "fk_training_sessions_plan",
     ),
 ])
-def test_foreign_keys(mysql_api, table, sql, constraint):
-    _, engine = mysql_api
-    with engine.connect() as connection:
+def test_foreign_keys(mysql_engine, table, sql, constraint):
+    with mysql_engine.connect() as connection:
         missing_id = connection.scalar(text(f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"))
         with pytest.raises(IntegrityError) as failure:
             connection.execute(text(sql), {"missing_id": missing_id})
@@ -135,9 +93,9 @@ def test_foreign_keys(mysql_api, table, sql, constraint):
         connection.rollback()
 
 
-def test_child_insert_failure_rolls_back_plan(mysql_api):
-    client, engine = mysql_api
-    user_id = create_user(client)
+def test_child_insert_failure_rolls_back_plan(mysql_api, mysql_engine, mysql_user_email):
+    client = mysql_api
+    user_id = create_user(client, mysql_user_email())
     payload = plan_request(user_id)
     inserted_plan_ids = []
 
@@ -160,7 +118,7 @@ def test_child_insert_failure_rolls_back_plan(mysql_api):
     assert len(inserted_plan_ids) == 1
     plan_id = inserted_plan_ids[0]
     assert plan_id is not None
-    with engine.connect() as connection:
+    with mysql_engine.connect() as connection:
         assert connection.scalar(
             text("SELECT COUNT(*) FROM training_plans WHERE id = :id"), {"id": plan_id}
         ) == 0
