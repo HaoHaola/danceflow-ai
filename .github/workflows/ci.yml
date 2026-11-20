@@ -30,45 +30,26 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Run API tests
-        run: |
-          python -m pytest \
-            tests/test_api.py \
-            tests/test_users_api.py \
-            tests/test_training_plans_api.py
+        run: python -m pytest -m "not mysql"
 
   mysql:
-    name: MySQL integration tests (${{ matrix.suite }})
+    name: MySQL integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: DF-003
-            database: danceflow_df003_test
-            port: '13307'
-            test_file: tests/test_users_mysql.py
-            enable_flag: RUN_MYSQL_TESTS
-          - suite: DF-004
-            database: danceflow_df004_test
-            port: '13308'
-            test_file: tests/test_training_plans_mysql.py
-            enable_flag: RUN_DF004_MYSQL_TESTS
-
     env:
-      MYSQL_DATABASE: ${{ matrix.database }}
-      MYSQL_HOST_PORT: ${{ matrix.port }}
+      MYSQL_DATABASE: danceflow_ci_test
+      MYSQL_HOST_PORT: '13309'
       MYSQL_USER: danceflow_ci
 
     services:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_DATABASE: ${{ matrix.database }}
+          MYSQL_DATABASE: danceflow_ci_test
           MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
           MYSQL_ROOT_HOST: localhost
         ports:
-          - '127.0.0.1:${{ matrix.port }}:3306'
+          - '127.0.0.1:13309:3306'
         options: >-
           --health-cmd="mysqladmin ping --protocol=tcp --host=127.0.0.1 --silent"
           --health-interval=2s
@@ -102,11 +83,10 @@ jobs:
           python -m alembic check
       - name: Run MySQL tests and verify execution
         env:
-          TEST_FILE: ${{ matrix.test_file }}
-          ENABLE_FLAG: ${{ matrix.enable_flag }}
+          RUN_MYSQL_TESTS: '1'
         run: |
           report="$RUNNER_TEMP/mysql-tests.xml"
-          env "$ENABLE_FLAG=1" python -m pytest "$TEST_FILE" --junitxml="$report"
+          python -m pytest -m mysql --junitxml="$report"
           python - "$report" <<'PY'
           import sys
           from xml.etree import ElementTree
