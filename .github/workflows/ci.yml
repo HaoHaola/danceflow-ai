@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: backend
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run API tests
+        run: |
+          python -m pytest \
+            tests/test_api.py \
+            tests/test_users_api.py \
+            tests/test_training_plans_api.py
+
+  mysql:
+    name: MySQL integration tests (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: DF-003
+            database: danceflow_df003_test
+            port: '13307'
+            test_file: tests/test_users_mysql.py
+            enable_flag: RUN_MYSQL_TESTS
+          - suite: DF-004
+            database: danceflow_df004_test
+            port: '13308'
+            test_file: tests/test_training_plans_mysql.py
+            enable_flag: RUN_DF004_MYSQL_TESTS
+
+    env:
+      MYSQL_DATABASE: ${{ matrix.database }}
+      MYSQL_HOST_PORT: ${{ matrix.port }}
+      MYSQL_USER: danceflow_ci
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: ${{ matrix.database }}
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_ROOT_HOST: localhost
+        ports:
+          - '127.0.0.1:${{ matrix.port }}:3306'
+        options: >-
+          --health-cmd="mysqladmin ping --protocol=tcp --host=127.0.0.1 --silent"
+          --health-interval=2s
+          --health-timeout=3s
+          --health-start-period=20s
+          --health-retries=30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Provision disposable test account
+        env:
+          MYSQL_CONTAINER_ID: ${{ job.services.mysql.id }}
+        run: |
+          ci_mysql_password="$(openssl rand -hex 24)"
+          printf '::add-mask::%s\n' "$ci_mysql_password"
+          docker exec -i "$MYSQL_CONTAINER_ID" mysql --protocol=socket -uroot <<SQL
+          CREATE USER '$MYSQL_USER'@'%' IDENTIFIED BY '$ci_mysql_password';
+          GRANT ALL PRIVILEGES ON \`$MYSQL_DATABASE\`.* TO '$MYSQL_USER'@'%';
+          SQL
+          printf 'MYSQL_PASSWORD=%s\n' "$ci_mysql_password" >> "$GITHUB_ENV"
+      - name: Apply and check migrations
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+      - name: Run MySQL tests and verify execution
+        env:
+          TEST_FILE: ${{ matrix.test_file }}
+          ENABLE_FLAG: ${{ matrix.enable_flag }}
+        run: |
+          report="$RUNNER_TEMP/mysql-tests.xml"
+          env "$ENABLE_FLAG=1" python -m pytest "$TEST_FILE" --junitxml="$report"
+          python - "$report" <<'PY'
+          import sys
+          from xml.etree import ElementTree
+
+          cases = ElementTree.parse(sys.argv[1]).findall(".//testcase")
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          if not cases or skipped:
+              raise SystemExit(
+                  f"Expected MySQL tests to run without skips: "
+                  f"{len(cases)} reported, {len(skipped)} skipped."
+              )
+          print(f"Verified {len(cases)} MySQL test cases ran without skips.")
+          PY
