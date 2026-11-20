@@ -146,3 +146,44 @@ only when MySQL initializes a new volume.
   )
 )
 ```
+
+## Save and read weekly training plans (DF-004)
+
+In Swagger UI at `/docs`, use `POST /api/v1/users` to create a local
+user or reuse an existing user ID. Submit the following JSON to
+`POST /api/v1/training-plans`, replacing `user_id` with that ID.
+
+```json
+{
+  "user_id": 1,
+  "title": "Weekly Popping basics",
+  "dance_style": "Popping",
+  "level": "beginner",
+  "goals": ["Hit on beat"],
+  "sessions": [
+    {"day_of_week": 1, "duration_minutes": 20, "focus": "Hit", "instructions": "Repeat for four eight-counts."}
+  ]
+}
+```
+
+POST returns 201 after saving the plan and sessions together. Read the full
+result at `GET /api/v1/training-plans/{plan_id}`. Sessions are returned in
+input order. Monday is day 1, and multiple sessions can share a weekday.
+The plan repeats weekly. A user ID selects the owner record for local
+development. There is currently no caller authentication.
+
+`GET /api/v1/users/{user_id}/training-plans` returns `items`, `limit`, and
+`offset`. Each item contains the complete plan and its sessions. The page is
+ordered by descending plan ID, with limit 10 by default (range 1–20) and
+offset 0 by default (range 0–10000). A missing user or plan returns 404.
+An existing user with no results on the page receives 200 and an empty list.
+
+To run DF-004's isolated MySQL tests, use the same Compose setup as DF-003 above
+with a fresh project name, `MYSQL_DATABASE=danceflow_df004_test`, and
+`MYSQL_HOST_PORT=13308`. After the test instance is healthy, run from `backend/`:
+
+```sh
+.venv/bin/alembic upgrade 472cb4adbf8b
+.venv/bin/alembic upgrade 10f04d5c9b21
+RUN_DF004_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
+```

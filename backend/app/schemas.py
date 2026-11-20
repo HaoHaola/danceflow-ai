@@ -48,3 +48,37 @@ class UserResponse(BaseModel):
     id: int
     email: str
     created_at: AwareDatetime
+
+
+class TrainingSessionCreate(BaseModel):
+    day_of_week: int = Field(strict=True, ge=1, le=7)
+    duration_minutes: int = Field(strict=True, ge=1, le=2147483647)
+    focus: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    instructions: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+class TrainingPlanCreate(BaseModel):
+    user_id: int = Field(strict=True, ge=1, le=2147483647)
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    dance_style: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    level: Literal["beginner", "intermediate", "advanced"]
+    goals: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    ] = Field(min_length=1, max_length=10)
+    sessions: list[TrainingSessionCreate] = Field(min_length=1, max_length=28)
+
+
+class TrainingSessionResponse(TrainingSessionCreate):
+    id: int
+
+
+class TrainingPlanResponse(TrainingPlanCreate):
+    id: int
+    created_at: AwareDatetime
+    sessions: list[TrainingSessionResponse] = Field(min_length=1, max_length=28)
+
+
+class TrainingPlanListResponse(BaseModel):
+    items: list[TrainingPlanResponse]
+    limit: int
+    offset: int
