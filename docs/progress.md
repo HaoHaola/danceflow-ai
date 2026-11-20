@@ -22,3 +22,20 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 - 從 `backend/` 執行 `.venv/bin/python -m pytest`，結果為 **64 passed、5 skipped**。
 - 在隔離 MySQL 測試庫執行 `RUN_DF004_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py`，結果為 **4 passed**。
 - Swagger UI `/docs` 手動驗證通過，DF-004 review 已完成。
+
+## DF-005 CI 已完成（Week 1.5）
+
+- `.github/workflows/ci.yml` 已透過 PR #1 合併至 `main`（merge commit `5316e36`）。Workflow 執行 API tests，以及使用獨立 MySQL 8.4 service 的 DF-003、DF-004 matrix jobs。
+- 兩組 MySQL jobs 執行 `alembic upgrade head` 和 `alembic check`，再執行對應的整合測試。JUnit 檢查要求至少有一項測試且沒有 skipped。
+- 本機驗證通過。API **64 passed**、DF-003 MySQL **1 passed**、DF-004 MySQL **4 passed**，`actionlint 1.7.12` 無診斷。兩組 MySQL 測試在未設定啟用 flag 時全部 skipped，JUnit 檢查如預期回傳 exit 1。
+
+| GitHub Actions 觸發方式 | API tests | MySQL DF-003 | MySQL DF-004 |
+| --- | --- | --- | --- |
+| `pull_request`（目標 `main`） | 通過 | 通過 | 通過 |
+| `push`（`main`） | 通過 | 通過 | 通過 |
+| `workflow_dispatch` | 通過 | 通過 | 通過 |
+
+### 後續待辦
+
+- 待部署目標確定後再實作 CD。
+- 整理 DF-003 與 DF-004 的共用 MySQL fixtures，保留專用測試庫的隔離檢查。

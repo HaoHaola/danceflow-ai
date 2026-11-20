@@ -115,6 +115,16 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 
 **Acceptance:** service starts locally; `/docs` shows contract; invalid input returns 422; tests pass; no secrets in Git.
 
+### Week 1.5 — GitHub Actions CI (DF-005, complete)
+
+**Delivered:** API tests and separate DF-003 and DF-004 MySQL 8.4 matrix jobs. Each MySQL job upgrades to Alembic head, runs `alembic check`, and validates the JUnit report for a non-empty run with zero skipped tests.
+
+**Verified locally:** API tests 64 passed, DF-003 MySQL 1 passed, DF-004 MySQL 4 passed, and actionlint 1.7.12 passed. Both MySQL jobs' JUnit checks rejected runs with all tests skipped.
+
+**Verified on GitHub:** All three jobs passed on `pull_request` targeting `main`, `push` to `main`, and `workflow_dispatch`.
+
+**Follow-up:** Consolidate shared MySQL test fixtures while preserving test database isolation. Implement CD once the deployment target is confirmed.
+
 ### Week 2 — Advanced Dance Knowledge RAG, implemented experimentally
 
 **Study by doing:** document ingestion and chunking strategies; dense baseline; sparse/BM25 and hybrid retrieval; Reciprocal Rank Fusion; Cross-Encoder reranking; citation quality. No need to redo completed IBM courses.
@@ -169,11 +179,11 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 
 **Acceptance:** tests pass in a clean environment; report explains quality, latency, errors and known limitations; secrets and personal details are redacted from logs.
 
-### Week 8 — Deployment, CI and portfolio delivery
+### Week 8 — Deployment and portfolio delivery
 
 **Study:** Docker Compose, GitHub Actions, operational checks and engineering documentation.
 
-**Build:** reproducible local stack (FastAPI, MySQL, Qdrant; n8n when needed), startup instructions, migrations, tests in CI, architecture diagram, screenshots/demo, evaluation reports, security notes, design decisions.
+**Build:** reproducible local stack (FastAPI, MySQL, Qdrant; n8n when needed), startup instructions, migrations, architecture diagram, screenshots/demo, evaluation reports, security notes, design decisions. Use the existing DF-005 CI and add CD once the deployment target is confirmed.
 
 **Acceptance:** clone → configure `.env` → start containers → migrate DB → run tests → demonstrate the six MVP features, with documented gaps if any.
 
