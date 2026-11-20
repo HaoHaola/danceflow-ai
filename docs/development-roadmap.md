@@ -123,7 +123,7 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 
 **Verified on GitHub:** All three jobs passed on `pull_request` targeting `main`, `push` to `main`, and `workflow_dispatch`.
 
-**DF-005.1 follow-up.** Shared MySQL fixtures and a single integration job are implemented and verified locally. GitHub Actions verification is pending. Implement CD once the deployment target is confirmed.
+**DF-005.1 complete.** Shared MySQL fixtures and a single MySQL integration job landed via PR #2. The API and MySQL jobs passed on the PR and on `main` after merge. Implement CD once the deployment target is confirmed.
 
 ### Week 2 — Advanced Dance Knowledge RAG, implemented experimentally
 
