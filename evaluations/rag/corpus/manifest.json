@@ -1,0 +1,51 @@
+[
+  {
+    "doc_id": "synthetic-groove",
+    "source_type": "article",
+    "title": "Synthetic Groove Practice",
+    "source_url": null,
+    "publisher": "DanceFlow AI",
+    "creator": {
+      "name": "DanceFlow AI",
+      "role": "sample author"
+    },
+    "language": "en",
+    "caption_type": null,
+    "acquisition_method": "project-authored synthetic fixture",
+    "acquired_on": null,
+    "source_version": "1",
+    "raw_path": "raw/synthetic-groove.md",
+    "raw_sha256": "59ddfe61f6664fbb4739ca6822e99593eccd87de9c7a7060ef5f62ef71ae302e",
+    "synthetic": true,
+    "eligible_for_rag_quality_evaluation": false,
+    "usage_terms": "Project-authored pipeline validation fixture only.",
+    "usage_evidence_url": null,
+    "review_status": "reviewed",
+    "review_method": "manual_full",
+    "review_fingerprint": "fe47738cf0c770a41a9f7a27c20a3a0ba6fb071123bd455b436513ad7c1c349e"
+  },
+  {
+    "doc_id": "synthetic-counts",
+    "source_type": "transcript",
+    "title": "Synthetic Counts",
+    "source_url": null,
+    "publisher": "DanceFlow AI",
+    "creator": {
+      "name": "DanceFlow AI",
+      "role": "sample author"
+    },
+    "language": "en",
+    "caption_type": "synthetic",
+    "acquisition_method": "project-authored synthetic fixture",
+    "acquired_on": null,
+    "source_version": "1",
+    "raw_path": "raw/synthetic-counts.vtt",
+    "raw_sha256": "4335350aa792cb9c00009506d3531ca3f539ecdd4c151c832b4ba3c15eb9e505",
+    "synthetic": true,
+    "eligible_for_rag_quality_evaluation": false,
+    "usage_terms": "Project-authored pipeline validation fixture only.",
+    "usage_evidence_url": null,
+    "review_status": "pending",
+    "review_method": null
+  }
+]

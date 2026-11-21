@@ -75,6 +75,13 @@ Once the backend skeleton exists:
 - Start the development server from backend/:
   python -m uvicorn app.main:app --reload
 
+## RAG Experiment Records
+
+- Update `evaluations/rag/report.md` alongside each RAG system decision, data update, or experiment.
+- Record the input versions, configuration, rationale, and observed verification results.
+- Mark evaluations that have not run as not run. Never report hypothetical results as observations.
+- Keep synthetic fixtures out of formal RAG quality evaluations.
+
 ## Teaching and Handoff
 
 Respond primarily in Traditional Chinese, keeping technical terms in English.
