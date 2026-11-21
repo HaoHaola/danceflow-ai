@@ -197,3 +197,50 @@ Chunking、MySQL 測試和正式 RAG 品質評估未執行。人工確認可先�
 - GitHub Actions 的 `CI` 在目標為 `main` 的 PR 上執行，沒有路徑篩選。`API tests` 從 `backend/` 執行 `python -m pytest -m "not mysql"`，RAG tests 只使用版本庫內的自製 fixtures 和暫存目錄。沿用既有 workflow 與 MySQL job。
 - 提交前在本機重跑 RAG suite 為 **37 passed**，非 MySQL suite 為 **101 passed、5 deselected**。兩者各有一則既有 Starlette TestClient 棄用警告。另從 `git archive cb827e3` 匯出的快照重跑相同非 MySQL 指令，仍為 **101 passed、5 deselected**，該快照無 `evaluations/rag/local/`。
 - 遠端 [PR #3](https://github.com/HaoHaola/danceflow-ai/pull/3) 的實作提交 `cb827e32a3e1d44b7d6f1ccdfe401c9ae331624d` 觸發 [CI run 44914866078](https://github.com/HaoHaola/danceflow-ai/actions/runs/44914866078)，API tests 與 MySQL integration tests 均為 `success`。
+
+## Week 2.1 — 第一批語料收集與清理
+
+2026-11-22 完成 10 篇 STEEZY 文章、5 支 Ceech 教學影片的本機匯入。基準為 PR #3 合併提交 `9c6464c`。沿用 2026-11-21 保存的兩份 HTML 和一份 VTT，當日新增 8 份 HTML、4 份 VTT。下列雜湊前綴識別原始快照版本，完整 SHA-256 及清理輸入檔雜湊保存在本機 manifest。
+
+### STEEZY 文章
+
+| 公開來源 | 作者 | Clean blocks | 原始 HTML SHA-256 前綴 |
+| --- | --- | ---: | --- |
+| [The Ultimate Beginner Dance Guide](https://www.steezy.co/posts/how-to-be-a-good-dancer) | Charise Roberts | 93 | `7ec9e3db2e6c` |
+| [How To Execute Movement For Beginner Dancers](https://www.steezy.co/posts/how-to-execute-movement) | Jessie Ma | 26 | `5866fc036fe0` |
+| [Basics of Dance Musicality](https://www.steezy.co/posts/basics-dance-musicality) | Charise Roberts | 56 | `b243fd70c55b` |
+| [How To Freestyle Dance](https://www.steezy.co/posts/how-to-freestyle-dance-2) | Charise Roberts | 60 | `d591f228079d` |
+| [How To Learn Popping – The Ultimate Popping Training Guide](https://www.steezy.co/posts/how-to-learn-popping) | Charise Roberts | 144 | `18af92d0058f` |
+| [How To Take A Dance Class](https://www.steezy.co/posts/how-to-take-a-dance-class-2) | Charise Roberts | 100 | `9ee7edc033ed` |
+| [How To Train Your Foundation / Fundamentals](https://www.steezy.co/posts/how-to-train-your-foundation-fundamentals-2) | Charise Roberts | 63 | `0ea96c4fd82d` |
+| [How To Train Your Musicality As A Dancer](https://www.steezy.co/posts/how-to-train-your-musicality-as-a-dancer) | Evan Zhou | 23 | `e34dd5913062` |
+| [What Is House Dance?](https://www.steezy.co/posts/what-is-house-dance) | Charise Roberts | 132 | `f3efcac5414d` |
+| [What Is Popping? (Popping Dance)](https://www.steezy.co/posts/what-is-popping-dance) | Charise Roberts | 99 | `fd1f15b33680` |
+
+### Nustudios 上傳的 Ceech 教學
+
+| 公開來源 | Cues | 合併字元 | 去除副本 | 保留疑點 | 原始 VTT SHA-256 前綴 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| [Dance Tutorial Basics: Hip Hop Bounce](https://www.youtube.com/watch?v=Aj34T435FAg) | 339 | 6117 | 332 | 2 | `70ed2782897d` |
+| [Dance Drills Basics - Arm Waves Inside Out](https://www.youtube.com/watch?v=Y1yURow9_4Q) | 533 | 9394 | 504 | 2 | `ffecd7b47c97` |
+| [Learn Hip-Hop Dance for Beginners and Intermediate Dancers \| Step-by-Step Tutorial](https://www.youtube.com/watch?v=okd4X8fVn80) | 353 | 6119 | 339 | 3 | `9b829243814e` |
+| [Locking Fundamentals - The Lock (in 4k)](https://www.youtube.com/watch?v=U_x-AxjcfNE) | 299 | 4310 | 198 | 20 | `3764799de324` |
+| [Hip-Hop Dance Tutorial: Learn Locking, Running Man and Skeeter Rabbit in Less Than 10 Minutes](https://www.youtube.com/watch?v=-0AVDqDu2As) | 409 | 6397 | 373 | 1 | `dd37bb090cd7` |
+
+- 五支影片使用 `yt-dlp 2026.10.26` 的原語言英文自動字幕 `en-orig`，格式 VTT。影片說明為授課者證據。Arm Waves Inside Out 與 Hip Hop Bounce 的說明使用 Dance With Ceech 署名，The Lock 自我介紹為 Ceech，另外兩支明列 Ceech 為授課者。
+- 候選 [Shuffle aka Running Man](https://www.youtube.com/watch?v=7TQahj_DQ2I) 由 Margarita 教授，排除。替代項 [Locking, Running Man and Skeeter Rabbit](https://www.youtube.com/watch?v=-0AVDqDu2As) 保留 Running Man 主題，另有動作組合，與專講 The Lock 的來源用途不同。
+- 舞風及程度依本文、標題或影片說明標記，例如 House 歷史的舞風為 `house`，程度為 `unknown`。所有來源的內容審核為 `pending`，正式 RAG 評估資格為 `false`。
+
+### 處理與回溯
+
+- 原始 HTML 以 curl 8.7.1 取得。Beautiful Soup 擷取 `h1.post-header` 和 `div.rich-text.w-richtext`，排除無文字 figure、內嵌促銷和純導覽段落。保留原文標題、段落、清單及 House 文章的引述文字。每篇正文排除位置由 manifest 的 `extraction_boundary` 記錄為原始正文直接元素的零起算索引。重新清理舊文章時沿用原 HTML 和取得日期。
+- 兩支字幕的相鄰詞級標籤各有重複時間值。將同一時間值下的相鄰標籤合成一組，原始 VTT、文字、cue 時間和行號均保留。`caption_review_lines` 記錄 Hip-Hop Fundamentals 第 935、1247、1375 行，及 Locking / Running Man / Skeeter Rabbit 第 303、751、911、1191 行。這些位置的重複發聲仍待人工檢查。
+- `prepare_corpus.py` 沿用 transcript v3 移除格式標籤和有時間證據的滾動副本。`transcript.doubts` 保留其餘 28 筆重疊疑點。既有 Bounce 的去重規則移除位置 `cue-169`、`cue-243` 亦待人工抽查。ASR 辨識錯字保留原樣，包含已知的 `1 atm`。
+- 第三方全文、VTT、manifest、clean JSON 和兩支本機腳本保存在 Git 忽略的 `evaluations/rag/local/week2.1/`。網站內容的專案使用授權仍待確認。本次 Git 交付為來源與驗證紀錄。
+
+### 實測
+
+- 本機 `prepare_batch.py` 產生對應快照與 manifest。從 repo 根目錄執行 `backend/.venv/bin/python -B evaluations/rag/prepare_corpus.py --manifest evaluations/rag/local/week2.1/manifest.json --output-dir evaluations/rag/local/week2.1/clean`，15/15 為 `passed`。重跑至 `repeat/`，`diff -qr` 和摘要 `cmp` 均一致。
+- `python3 -B evaluations/rag/local/week2.1/verify_batch.py` 通過 10/5 筆數、唯一 URL／ID／雜湊、輸入 SHA-256、metadata 一致、非空內容、文章與 VTT 行號回溯、字幕起訖與起始時間順序、合併文字的來源切片、七行修正前後的去標籤文字一致性。十篇文章之間無完全相同的正規化 paragraph record，五支影片兩兩共有的八詞序列最高占較短一方約 1.22%。此檢查可辨識明顯重複，字幕文字與畫面仍待完整人工抽查。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider`，**101 passed、5 skipped**，含 37 個離線語料測試。5 個 MySQL 測試因預設未啟用而跳過，另有一則既有 Starlette TestClient 棄用警告。`git diff --check` 通過。
+- Chunking、embedding、Qdrant ingestion、retrieval、RAG baseline 與正式 RAG 品質評估未執行。

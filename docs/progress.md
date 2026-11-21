@@ -65,3 +65,11 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 
 - Week 2 資料準備交付到 transcript v3。ASR 錯字保留，`cue-169`、`cue-243` 尚待影片抽查，整份字幕人工審核為 `pending`。最新本機產物在 `evaluations/rag/local/transcript-v3/`。遠端驗證見 [RAG 實驗紀錄](../evaluations/rag/report.md)。
 - [PR #3](https://github.com/HaoHaola/danceflow-ai/pull/3) 的實作提交 `cb827e3` 已通過 [API 與 MySQL CI](https://github.com/HaoHaola/danceflow-ai/actions/runs/44914866078)。
+
+- PR #3 已合併至 `main`，merge commit 為 `9c6464c`。Week 2.1 從此提交開始。
+
+## Week 2.1 第一批語料已完成本機收集與清理
+
+- 本機共 **10 篇 STEEZY 文章、5 支 Ceech 教學影片**，含先前的 2 篇文章和 1 支影片。Margarita 教授的候選影片改用 Ceech 教授的 Nustudios 教學。
+- 15 份非空 clean JSON 均通過自動驗證。原始快照、manifest 與衍生檔位於 Git 忽略的 `evaluations/rag/local/week2.1/`。五支影片皆為原語言英文自動字幕，內容人工審核待確認。
+- Backend 預設 suite **101 passed、5 skipped**。來源、快照識別、去重疑點、驗證指令與限制見 [RAG 實驗紀錄](../evaluations/rag/report.md#week-21--第一批語料收集與清理)。Chunking、embedding、Qdrant ingestion、retrieval 與 RAG baseline 均未執行。
