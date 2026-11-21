@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local third-party RAG snapshots, manifest, and clean outputs
+/evaluations/rag/local/
