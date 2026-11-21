@@ -1,5 +1,20 @@
-# danceflow-ai
-AI-Powered Street Dance Coaching and Crew Management Platform
+# DanceFlow AI
+
+DanceFlow AI is a street dance coaching and crew management platform in development.
+The current backend supports local user creation and lookup, as well as saving and
+reading weekly training plans. The training-plan draft endpoint is a placeholder.
+
+## Project progress
+
+| Milestone | Delivered |
+| --- | --- |
+| DF-001–DF-004 | FastAPI health and draft endpoints, local MySQL and Alembic migrations, user creation and lookup, and weekly training plan APIs. |
+| DF-005 | GitHub Actions CI added an API job and separate MySQL 8.4 matrix jobs for the DF-003 and DF-004 integration suites. |
+| DF-005.1 | Shared MySQL fixtures and a single MySQL integration job. The API job runs all tests without the `mysql` marker, including offline corpus tests. |
+| Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
+
+See the [development progress](docs/progress.md) for milestone history and the
+[roadmap](docs/development-roadmap.md) for planned capabilities.
 
 ## Run the DF-001 backend
 
@@ -50,8 +65,9 @@ python -m app.db
 ```
 
 The check connects to `127.0.0.1` on `MYSQL_HOST_PORT` (default `3307`) and
-reports whether `SELECT 1` returns `1`. The FastAPI endpoints and their tests
-can run independently of MySQL and `.env`.
+reports whether `SELECT 1` returns `1`. The health and draft endpoints and the
+non-MySQL test suite can run without MySQL and `.env`. User and saved-plan
+endpoints require the migrated database.
 
 From the repository root, use `docker compose stop mysql` to stop the service
 or `docker compose down` to remove the container and network while retaining
@@ -92,13 +108,25 @@ path without opening a connection. An online upgrade modifies the schema and
 revision history, and MySQL DDL can implicitly commit. Downgrading the first
 revision drops `users` and its data.
 
-## Run tests
+## Run tests and CI
 
 From `backend/`, activate `.venv` and install the development dependencies before running the tests.
 
 ```sh
 python -m pytest
+python -m pytest -m "not mysql"
 ```
+
+The first command skips MySQL integration tests by default. The second selects
+the same tests as the CI API job, including the offline corpus tests. See
+[MySQL integration tests](#run-mysql-integration-tests) for the isolated test
+database setup and the `RUN_MYSQL_TESTS=1` opt-in.
+
+[GitHub Actions CI](.github/workflows/ci.yml) runs on pull requests targeting
+`main`, pushes to `main`, and manual dispatch. The MySQL job uses an isolated
+MySQL 8.4 service, runs `alembic upgrade head` and `alembic check`, and checks
+the JUnit report for at least one test case and zero skips. CI is operational.
+CD and actual deployment are pending.
 
 ## Create and look up a local user (DF-003)
 
@@ -192,3 +220,33 @@ on its own from `backend/`.
 RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
 RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
 ```
+
+## Week 2.1 corpus preparation
+
+The local corpus contains **10 STEEZY articles and 5 Ceech lessons**.
+Article cleanup removes navigation and promotions while preserving headings,
+paragraphs, lists, and source line references. Caption cleanup retains cue
+timestamps and removes rolling duplicates when timing evidence supports the
+match. Manual caption content review remains `pending`, including **28 overlap
+cases** flagged for review.
+
+The original snapshots and derived inputs are under
+`evaluations/rag/local/week2.1/raw/`, with `manifest.json` at the batch root and
+clean JSON under `clean/`. The entire batch directory is Git-ignored.
+Git tracks the [preparation CLI](evaluations/rag/prepare_corpus.py),
+[synthetic fixtures](evaluations/rag/corpus/), and the
+[source and validation record](evaluations/rag/report.md#week-21--第一批語料收集與清理).
+
+With the local batch already present, rerun preparation from the repository root:
+
+```sh
+backend/.venv/bin/python -B evaluations/rag/prepare_corpus.py \
+  --manifest evaluations/rag/local/week2.1/manifest.json \
+  --output-dir evaluations/rag/local/week2.1/clean
+python3 -B evaluations/rag/local/week2.1/verify_batch.py
+```
+
+All 15 outputs were checked for nonempty content, unique source identifiers,
+metadata, source hashes, and traceability. Caption checks also cover cue
+ordering and timestamp ranges. Chunking, embedding, Qdrant ingestion,
+retrieval, and the RAG baseline have yet to run.
