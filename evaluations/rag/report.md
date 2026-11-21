@@ -195,4 +195,5 @@ Chunking、MySQL 測試和正式 RAG 品質評估未執行。人工確認可先�
 - 交付範圍涵蓋本機快照匯入、來源回溯與 transcript v3。Git 保留程式、離線測試、自製 fixtures 與文件。第三方快照、衍生全文、真實 manifest 及取得工具環境留在忽略的 `local/`；目前本機輸出為 `local/transcript-v3/`。
 - ASR 措辭維持原樣，`cue-169`、`cue-243` 尚待影片抽查，真實字幕的整體人工審核為 `pending`。正式 RAG 評估未執行。
 - GitHub Actions 的 `CI` 在目標為 `main` 的 PR 上執行，沒有路徑篩選。`API tests` 從 `backend/` 執行 `python -m pytest -m "not mysql"`，RAG tests 只使用版本庫內的自製 fixtures 和暫存目錄。沿用既有 workflow 與 MySQL job。
-- 提交前在本機重跑 RAG suite 為 **37 passed**，非 MySQL suite 為 **101 passed、5 deselected**。兩者各有一則既有 Starlette TestClient 棄用警告。遠端結果另依 PR 實際執行紀錄更新。
+- 提交前在本機重跑 RAG suite 為 **37 passed**，非 MySQL suite 為 **101 passed、5 deselected**。兩者各有一則既有 Starlette TestClient 棄用警告。另從 `git archive cb827e3` 匯出的快照重跑相同非 MySQL 指令，仍為 **101 passed、5 deselected**，該快照無 `evaluations/rag/local/`。
+- 遠端 [PR #3](https://github.com/HaoHaola/danceflow-ai/pull/3) 的實作提交 `cb827e32a3e1d44b7d6f1ccdfe401c9ae331624d` 觸發 [CI run 44914866078](https://github.com/HaoHaola/danceflow-ai/actions/runs/44914866078)，API tests 與 MySQL integration tests 均為 `success`。

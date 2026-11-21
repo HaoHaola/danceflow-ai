@@ -64,3 +64,4 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 - Transcript 規則版本 `3` 延續已辨識的 10 ms 過渡鏈。`cue-305` 首行 `atm` 併回 `cue-303`，三個 cues 都可回溯，第二行的新講解保留。真實字幕新增 3 筆移除，疑點 5 → 2。離線測試 **37 passed**，非 MySQL suite **101 passed、5 deselected**。整份字幕仍待人工審核。 [規則及實測](../evaluations/rag/report.md)
 
 - Week 2 資料準備交付到 transcript v3。ASR 錯字保留，`cue-169`、`cue-243` 尚待影片抽查，整份字幕人工審核為 `pending`。最新本機產物在 `evaluations/rag/local/transcript-v3/`。遠端驗證見 [RAG 實驗紀錄](../evaluations/rag/report.md)。
+- [PR #3](https://github.com/HaoHaola/danceflow-ai/pull/3) 的實作提交 `cb827e3` 已通過 [API 與 MySQL CI](https://github.com/HaoHaola/danceflow-ai/actions/runs/44914866078)。
