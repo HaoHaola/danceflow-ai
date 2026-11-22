@@ -12,6 +12,7 @@ reading weekly training plans. The training-plan draft endpoint is a placeholder
 | DF-005 | GitHub Actions CI added an API job and separate MySQL 8.4 matrix jobs for the DF-003 and DF-004 integration suites. |
 | DF-005.1 | Shared MySQL fixtures and a single MySQL integration job. The API job runs all tests without the `mysql` marker, including offline corpus tests. |
 | Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
+| Week 2.2 | Qwen embedding smoke test and local chunking completed. The current `batch-headings-v2` contains 154 chunks across 15 sources. |
 
 See the [development progress](docs/progress.md) for milestone history and the
 [roadmap](docs/development-roadmap.md) for planned capabilities.
@@ -221,32 +222,66 @@ RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
 RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
 ```
 
-## Week 2.1 corpus preparation
+## Local RAG preparation
 
-The local corpus contains **10 STEEZY articles and 5 Ceech lessons**.
-Article cleanup removes navigation and promotions while preserving headings,
-paragraphs, lists, and source line references. Caption cleanup retains cue
-timestamps and removes rolling duplicates when timing evidence supports the
-match. Manual caption content review remains `pending`, including **28 overlap
-cases** flagged for review.
+The selected corpus contains **10 STEEZY articles and 5 Ceech lessons**.
+Articles retain their original block and heading structure. Caption
+preparation uses transcript v3 to remove adjacent rolling duplicates. The
+derived chunking input excludes whole-line `[Music]` and `[Applause]` markers
+while retaining cue timestamps and line references. ASR omissions and
+transcription errors remain as captured, and a full listening review of every
+video is outside this baseline.
 
-The original snapshots and derived inputs are under
-`evaluations/rag/local/week2.1/raw/`, with `manifest.json` at the batch root and
-clean JSON under `clean/`. The entire batch directory is Git-ignored.
-Git tracks the [preparation CLI](evaluations/rag/prepare_corpus.py),
-[synthetic fixtures](evaluations/rag/corpus/), and the
-[source and validation record](evaluations/rag/report.md#week-21--第一批語料收集與清理).
+**Current input** is `evaluations/rag/local/week2.1/clean-v3-baseline/`.
+**Current chunks** are in
+`evaluations/rag/local/week2.2/batch-headings-v2/` (154 total, 136 article
+and 18 video, zero heading-only). The earlier 179-chunk batch is retained for
+comparison under `local/week2.2/batch/`. Third-party snapshots, captions,
+clean JSON, chunks and model cache are stored in the Git-ignored
+`evaluations/rag/local/` directory.
 
-With the local batch already present, rerun preparation from the repository root:
+Article chunks carry the title and source heading hierarchy in
+`embedding_text`. Video chunks combine adjacent retained cues. Both use a
+512-token limit for the full embedding input and a 64-token overlap budget.
+The pilot and the full batch passed body coverage, source traceability,
+token limit and deterministic rerun checks.
+
+### Run the embedding smoke test and chunking
+
+From the repository root, set up the separate RAG environment and cache the
+pinned Qwen revision once.
 
 ```sh
-backend/.venv/bin/python -B evaluations/rag/prepare_corpus.py \
-  --manifest evaluations/rag/local/week2.1/manifest.json \
-  --output-dir evaluations/rag/local/week2.1/clean
-python3 -B evaluations/rag/local/week2.1/verify_batch.py
+backend/.venv/bin/python -m venv evaluations/rag/local/.embedding-venv
+evaluations/rag/local/.embedding-venv/bin/python -m pip install \
+  -r evaluations/rag/requirements-embedding.txt
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+evaluations/rag/local/.embedding-venv/bin/hf download \
+  Qwen/Qwen3-Embedding-0.6B --revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
 ```
 
-All 15 outputs were checked for nonempty content, unique source identifiers,
-metadata, source hashes, and traceability. Caption checks also cover cue
-ordering and timestamp ranges. Chunking, embedding, Qdrant ingestion,
-retrieval, and the RAG baseline have yet to run.
+With the cache present, run the smoke test offline. The tokenizer-only
+chunking commands also require the selected local clean corpus and its
+validation summary.
+
+```sh
+export HF_HUB_OFFLINE=1
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/smoke_embedding.py
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.py \
+  --input-dir evaluations/rag/local/week2.1/clean-v3-baseline \
+  --output-dir evaluations/rag/local/week2.2/pilot-headings-v2
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_batch.py \
+  --baseline-root evaluations/rag/local/week2.1 \
+  --output-dir evaluations/rag/local/week2.2/batch-headings-v2
+```
+
+The smoke test passed on CPU with float32 and normalized 1024-dimensional
+vectors. Chinese and English queries use a retrieval instruction, while
+English documents use their text directly. The smoke test confirms the
+embedding path runs. Retrieval quality remains unmeasured. See the
+[model comparison, full instruction and smoke results](evaluations/rag/report.md#week-21--embedding-選型與本機-smoke-test)
+and the [chunking settings and comparison](evaluations/rag/report.md#week-22--文章標題改為正文的階層前綴).
+
+Next, prepare and review the retrieval evaluation set, then embed the
+154 chunks, ingest them into Qdrant and run the retrieval baseline. Each
+of these steps is pending. [Development progress](docs/progress.md)

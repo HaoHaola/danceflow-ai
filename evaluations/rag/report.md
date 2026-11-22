@@ -244,3 +244,208 @@ Chunking、MySQL 測試和正式 RAG 品質評估未執行。人工確認可先�
 - `python3 -B evaluations/rag/local/week2.1/verify_batch.py` 通過 10/5 筆數、唯一 URL／ID／雜湊、輸入 SHA-256、metadata 一致、非空內容、文章與 VTT 行號回溯、字幕起訖與起始時間順序、合併文字的來源切片、七行修正前後的去標籤文字一致性。十篇文章之間無完全相同的正規化 paragraph record，五支影片兩兩共有的八詞序列最高占較短一方約 1.22%。此檢查可辨識明顯重複，字幕文字與畫面仍待完整人工抽查。
 - 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider`，**101 passed、5 skipped**，含 37 個離線語料測試。5 個 MySQL 測試因預設未啟用而跳過，另有一則既有 Starlette TestClient 棄用警告。`git diff --check` 通過。
 - Chunking、embedding、Qdrant ingestion、retrieval、RAG baseline 與正式 RAG 品質評估未執行。
+
+### Week 2.1 — 字幕滾動重疊人工審查清單
+
+- 沿用上述 2026-11-22 批次的 manifest、VTT 與 transcript v3。從五份字幕 clean JSON 的 `transcript.doubts` 讀取原有疑點，按報告的影片順序及檔內順序編號，使用 cue 時間與 `raw_lines` 提供影片和快照定位。本機清單位於 Git 忽略的 `local/week2.1/subtitle-overlap-review.md`，共 28 筆，分布為 2、2、3、20、1。
+- 從 repo 根目錄執行 `python3 -B evaluations/rag/local/week2.1/verify_batch.py`，檢查通過。另以 Python 核對 15 份 clean JSON 的 SHA-256 均與既有 `validation-summary.json` 一致，確認 28 筆的相鄰 cue、時間及吻合文字切片均能對應來源紀錄。
+- 清單僅記錄文字與時間的初判，28 筆均為 `needs_review`。音訊審查、chunking、embedding、Qdrant ingestion、retrieval 與正式 RAG 評估均未執行。
+
+### Week 2.1 — Transcript v4 滾動去重與數拍待校對
+
+- 沿用同一批 manifest、原始快照與 WebVTT parser。v4 移除以整行相同及 10 ms 過渡為基礎的無詞級時間規則及其延續規則。相鄰 cue 必須有整行後綴／前綴延續，並有重疊且一致的詞級時間，或由帶有詞級時間的原行經無縫短過渡延續，才合併來源。證據不足的吻合內容保留並標記。
+- `transcript.chunking_input` 由合併後的 spans 投影，僅排除整行 `[Music]`、`[Applause]`。其 spans 的字元位置對應衍生文字。排除項記錄原 transcript 的 span 與來源。原始 VTT、cue 文字、時間和 `raw_lines` 均保留。
+- 使用者聽音回報數拍漏字。RO-05、RO-06、RO-07、RO-28 的記錄為「疑似滾動重複，且使用者聽音發現數拍漏字；精確轉寫待確認。」三段範圍與現有 cue 文字保存在 Git 忽略的 `local/week2.1/count-transcription-review.md`。四筆仍保留文字與疑點。ASR 內容未校對，整份字幕的人工審核狀態仍為 `pending`。
+- 從 repo 根目錄執行 `backend/.venv/bin/python -B evaluations/rag/prepare_corpus.py --manifest evaluations/rag/local/week2.1/manifest.json --output-dir evaluations/rag/local/week2.1/clean-v4`，15 份通過自動驗證。另輸出至暫存目錄，`diff -qr` 和摘要 `cmp` 一致。`python3 -B evaluations/rag/local/week2.1/verify_batch.py` 通過。以 Python 核對既有 15 份 clean JSON SHA-256、v4 的 cue records、10 份文章輸出及字幕 span 的文字／時間回溯。
+- 五支影片合計去重 1,690 次，較 v3 少 56 次。疑點由 28 增至 84，原有 28 筆均保留。衍生輸入排除 78 個非語音 marker spans，數量獨立於滾動去重。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider`，102 passed、5 skipped，另有一則既有 Starlette TestClient 棄用警告。`git diff --check` 通過。Chunking、embedding、檢索與正式 RAG 評估未執行。
+
+### Week 2.1 — 選定 transcript v3 作為 baseline
+
+- 採用既有 transcript v3 規則，保守的 v4 結果只作歷史比較。v3 優先減少相鄰滾動字幕的重複顯示，接受短過渡等啟發式判定可能誤刪真實重複口令。規則仍限制在相鄰 cue 的後綴／前綴與時間關係，沒有全域單字去重。
+- baseline 輸出位於 Git 忽略的 `local/week2.1/clean-v3-baseline/`。僅新增 `transcript.chunking_input`，從 v3 spans 排除整行 `[Music]`、`[Applause]`，保留同 cue 口語行。衍生文字的 spans 使用重算的字元區間，並保留原 cue、時間與原始行號回溯。排除清單的字元區間對應原 transcript。
+- 沿用同一 manifest、5 支影片與 10 篇文章。ASR 內容未校對，未補寫漏字或修正錯字。人工審核維持 `pending`，沿用三段數拍待校對紀錄。
+- 從 repo 根目錄執行 `backend/.venv/bin/python -B evaluations/rag/prepare_corpus.py --manifest evaluations/rag/local/week2.1/manifest.json --output-dir evaluations/rag/local/week2.1/clean-v3-baseline`。同一輸入再跑至暫存目錄，`diff -qr` 和摘要 `cmp` 一致。`python3 -B evaluations/rag/local/week2.1/verify_batch.py` 通過，原始快照與清理輸入雜湊一致。
+- 15 份輸出完整。以 Python 比對，10 份文章逐位元一致，5 份字幕除新增衍生欄位外與既有 v3 完全相同，既有 15 份檔案 SHA-256 仍與原摘要一致。v3 共去重 1,746 次、保留 28 筆疑點，另從衍生文字排除 78 個標記 spans。衍生文字的切片和來源映射均核對通過。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider`，102 passed、5 skipped，含一則既有 Starlette TestClient 棄用警告。`git diff --check` 通過。Chunking、embedding、檢索與正式 RAG 評估未執行。
+
+### Week 2.1 — Embedding 選型與本機 smoke test
+
+官方模型卡查核日期為 2026-11-22（Asia/Taipei）。DanceFlow 需要接受中文、英文提問，檢索英文舞蹈文章與影片字幕。本輪採用 **Qwen/Qwen3-Embedding-0.6B**。官方支援多語言及跨語言檢索、可直接沿用 SentenceTransformers，0.6B 規模適合先在本機驗證，權重採 Apache-2.0。模型提供 32K context，使用完整 1024 維 dense 向量。以下成本比較依參數量、向量維度與整合需求推估，候選未做本機效能比較。DanceFlow retrieval 評估尚未執行，選型不代表此模型在專案語料上效果最佳。[Qwen 0.6B 官方模型卡](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)
+
+| 候選 | 功能、成本與授權取捨 | 官方來源 |
+| --- | --- | --- |
+| Qwen3-Embedding-4B | 同系列，多語、32K、最高 2560 維，可用同一個 SentenceTransformers 介面。4B 權重預期需要更多下載空間、記憶體與運算，若使用完整維度，每筆向量也較大。Apache-2.0。 | [Qwen 模型卡](https://huggingface.co/Qwen/Qwen3-Embedding-4B) |
+| BGE-M3 | 多語、8192 tokens、1024 維 dense，也提供 sparse 與 ColBERT multi-vector。Dense 可沿用 SentenceTransformers，後兩種輸出若納入實驗，會增加整合、索引和查詢成本。MIT。 | [BAAI 模型卡](https://huggingface.co/BAAI/bge-m3) |
+| Jina v5-text-small | 677M、32768 tokens、最高 1024 維。與選用模型規模接近，支援 retrieval、matching、clustering、classification，官方本機用法另列 PEFT。CC BY-NC 4.0，商用需洽 Jina。 | [Jina small 模型卡](https://huggingface.co/jinaai/jina-embeddings-v5-text-small) |
+| Jina v5-text-nano | 239M、8192 tokens、最高 768 維，支援同系列四種任務。權重較小，完整向量占用較少空間，輸入長度上限較短。CC BY-NC 4.0，商用需洽 Jina。 | [Jina nano 模型卡](https://huggingface.co/jinaai/jina-embeddings-v5-text-nano) |
+
+本機為 Apple M4 Pro（arm64、12 CPU cores、24 GiB RAM），backend Python 3.13.3，既有 backend 依賴沒有 PyTorch、Transformers 或 SentenceTransformers。本輪在 Git 忽略的 `evaluations/rag/local/.embedding-venv/` 安裝 embedding 套件。CI 繼續使用既有離線 fixtures，真實模型 smoke test 由本機指令手動執行。
+
+#### 重現方式
+
+從 repo 根目錄執行。前兩步安裝套件，接著將官方固定 revision 的模型下載至 Git 忽略的快取。最後一行可在離線環境重跑。
+
+```sh
+backend/.venv/bin/python -m venv evaluations/rag/local/.embedding-venv
+evaluations/rag/local/.embedding-venv/bin/python -m pip install -r evaluations/rag/requirements-embedding.txt
+HF_HUB_CACHE=evaluations/rag/local/hf-cache evaluations/rag/local/.embedding-venv/bin/hf download \
+  Qwen/Qwen3-Embedding-0.6B --revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/smoke_embedding.py
+```
+
+本次權重及設定檔透過 Hugging Face 的固定 revision URL 下載，權重為 1,191,586,416 bytes，本機 SHA-256 與官方回應的權重雜湊一致（`0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd`）。[官方模型快照](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/tree/97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3)
+
+完整 query prefix 如下。第二行冒號後有一個空格，再接上原始 query。格式採官方 instruction 模式，指令以英文描述 DanceFlow 的檢索任務。兩段測試文件以原文編碼，呼叫 `encode(..., prompt="")` 明確使用空 prompt。
+
+```text
+Instruct: Given a street dance question, retrieve relevant English passages from dance articles and instructional video transcripts that answer it.
+Query: <query>
+```
+
+#### 實測結果
+
+- 固定 revision 為 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。Python 3.13.3、macOS 26.6.2、PyTorch 2.8.0、Transformers 4.57.6、SentenceTransformers 5.1.2、huggingface-hub 0.36.2、tokenizers 0.22.2、safetensors 0.8.0、NumPy 2.5.5。
+- 離線 smoke 指令 exit 0。模型與 tokenizer 均成功載入。裝置為 CPU，PyTorch 使用 4 個 intra-op threads，權重與輸出皆為 float32。Smoke 的 `max_seq_length=512`，與後續 chunking 設定分開。兩個帶 instruction 的 query 和兩段原文文件的 token 數依序為 38、36、20、16，均低於截斷上限。
+- `normalize_embeddings=True`。Query 和文件各為 `(2, 1024)`，所有分量有限，四個向量的 L2 norm 實測均為 1.0，通過絕對誤差 `1e-6` 檢查。單次本機快取載入模型和 tokenizer 為 **1.456 s**，不含下載與 Python 套件 import。首批 2 個 query encode 為 **0.180 s**，接續一批 2 段文件 encode 為 **0.074 s**。每批 encode 時間含 tokenizer、模型推論及正規化，無另外 warm-up。
+- 使用兩個自製英文文件，一段描述手臂波浪從手指到肩膀的動作傳遞，一段描述番茄澆水。單位向量的 dot product 即為 cosine similarity。這些短句只用於功能檢查，排除於正式 RAG 品質評估。
+
+| Query | 手臂波浪文件 | 番茄澆水文件 |
+| --- | ---: | ---: |
+| 初學者怎麼練習手臂波浪？ | 0.711089 | 0.242114 |
+| How can a beginner practice an arm wave? | 0.740947 | 0.224636 |
+
+- `evaluations/rag/local/.embedding-venv/bin/python -m pip check` 回報 `No broken requirements found.` 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**102 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。 `git diff --check` 通過。
+- Chunking、15 份語料的批次 embedding、Qdrant ingestion、retrieval 與正式 RAG 評估均未執行。
+
+### Week 2.2 — Chunking pilot，兩份來源
+
+本輪使用 `local/week2.1/clean-v3-baseline/` 的兩份 clean JSON。輸入雜湊是 clean JSON 原始位元組的 SHA-256，產物另保留原始快照的 `raw_sha256`。影片的 cue records 及既有 transcript v3 與舊版快照相同，`chunking_input` 排除 4 個整行非語音 marker，保留 168 個去重後 spans。ASR 文字未修改，人工審核仍為 pending。
+
+| 來源 | Cleaning / transcript 版本 | Clean JSON SHA-256 |
+| --- | --- | --- |
+| How To Execute Movement For Beginner Dancers | 1 / 不適用 | `95091b1ed122de1d26765d7d09b4a412a9b58a025c48578e658958a63d507424` |
+| Dance Tutorial Basics: Hip Hop Bounce | 2 / 3 | `479bdef40d5ff5292b3c36bfb67e838a3deacb6fb1ea441e6d24057ed6d1702b` |
+
+設定版本 `week2.2-pilot-1`。Tokenizer 使用上一輪同一個 Qwen revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`，Transformers 4.57.6、tokenizers 0.22.2。本機快取離線載入 tokenizer，未載入模型權重。每段 `embedding_text` 由來源標題、文章可用的小節路徑、空行和正文組成。保留原樣的 `text` 支援精確回溯，`embedding_text` 依 SentenceTransformers 的輸入處理移除外側空白。完整輸入以 `add_special_tokens=True`、`truncation=False` 計數，硬上限 512。Overlap 以重複正文單獨計數，最多 64 tokens，且納入完整輸入的 512 tokens 上限。本文未使用 LLM 轉寫。
+
+- 文章按相鄰的 `heading_path` 分區，以完整清理區塊合併。過長區塊先依標點加空白判定句界，最後才以 tokenizer 字元 offsets 切分。保留 heading record，並保留 `block_range` 與原始行範圍。
+- 影片依 v3 span 順序合併相鄰 cue，使用每個 span 首次保留的 cue 決定邊界，仍保留其他滾動副本的來源指標。超長 cue 才用 tokenizer offsets 續切。因時間粒度沿用來源 cue，拆分後的字元位置可精確回到 cue 的 `plain_text`，時間仍指向整個 cue。
+- 每段先確認可容納新增單位，才保留前段末尾的完整句子、區塊或 cue 作 overlap。以 `new_body_range` 串回每個來源或小節，應逐字等於清理後正文。句界是啟發式規則，縮寫或無標點長文可能落到 token 切分。Pilot 的長段／長 cue fallback 由離線 fixtures 驗證。512／64 目前是 pilot 設定，尚無標註查詢結果可據以調整。
+
+| 來源 | Chunk 數 | Token 數（依輸出順序） | 最小／中位／最大 | Overlap tokens |
+| --- | ---: | --- | --- | --- |
+| How To Execute Movement For Beginner Dancers | 5 | 119, 284, 261, 134, 218 | 119 / 218 / 284 | 0, 0, 0, 0, 0 |
+| Dance Tutorial Basics: Hip Hop Bounce | 4 | 508, 506, 511, 90 | 90 / 507 / 511 | 0, 60, 60, 57 |
+
+完整 JSON 位於 Git 忽略的 `local/week2.2/chunks/`。`local/week2.2/boundary-preview.md` 列出文章 #2–4 和影片 #1–3 的完整正文，分別標記 overlap 與新增正文。文章這三段在各自小節內就能容納，因此 overlap 均為 0。影片 #2、#3 各有 60 tokens 來自前一 chunk。
+
+從 repo 根目錄執行：
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.py \
+  --input-dir evaluations/rag/local/week2.1/clean-v3-baseline \
+  --output-dir evaluations/rag/local/week2.2/chunks
+```
+
+- 同指令輸出至獨立暫存目錄後用 `diff -qr` 比較，兩份 JSON 逐位元一致，包含 chunk IDs。另以固定 tokenizer 重算每段完整輸入及 overlap 的 token 數，驗證預算、非空與新增正文，以及每筆區塊或 cue 的字元位置、時間與原始行範圍。串接無 overlap 的新增正文後與原輸入逐字一致。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider tests/test_rag_chunk_pilot.py` 為 **4 passed**。執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'` 為 **106 passed、5 deselected**。兩輪各有一則既有 Starlette TestClient 棄用警告。測試使用自製 fixture 和 token 計數替身，CI 無 tokenizer 或模型下載。`git diff --check` 通過。
+- 其餘語料未切分。批次 embedding、Qdrant ingestion、retrieval 與正式 RAG 評估均未執行。
+
+### Week 2.2 — 選定的 15 份來源完成批次 chunking
+
+輸入使用 `local/week2.1/manifest.json`、`validation-summary-v3-baseline.json` 及 `clean-v3-baseline/`。批次入口只依固定的 15 個來源 ID 開檔，核對 manifest、驗證摘要中的 clean JSON SHA-256、原始來源雜湊與網址。5 支影片均使用 v3 投影，仍只排除整行 `[Music]`、`[Applause]`，ASR 原文維持。逐來源輸入 SHA-256 與完整 token 序列保存在本機 `local/week2.2/batch/summary.json`。
+
+沿用 `week2.2-pilot-1` 和 Qwen tokenizer revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。文章分小節並合併完整區塊，字幕沿用連續保留 cue。完整 `embedding_text` 使用原 tokenizer 計數，含來源標題、小節及特殊 tokens，最多 512；重複正文的 overlap 預算為 64 tokens，每段須有新增正文。本輪維持相同規則，讓批次結果可直接與兩份 pilot 輸出比對。
+
+| 來源 ID | Chunks | 最小／中位／最大 tokens | 有 overlap 的 chunk 序號及 token 數 |
+| --- | ---: | --- | --- |
+| `steezy-how-to-be-a-good-dancer` | 18 | 23／118.5／278 | 全 0 |
+| `steezy-how-to-execute-movement` | 5 | 119／218／284 | 全 0 |
+| `steezy-basics-dance-musicality` | 8 | 14／109.5／494 | #5 57 |
+| `steezy-how-to-freestyle-dance-2` | 9 | 82／157／275 | 全 0 |
+| `steezy-how-to-learn-popping` | 55 | 23／63／269 | 全 0 |
+| `steezy-how-to-take-a-dance-class-2` | 9 | 55／267／500 | #6 53、#9 48 |
+| `steezy-how-to-train-your-foundation-fundamentals-2` | 9 | 42／193／254 | 全 0 |
+| `steezy-how-to-train-your-musicality-as-a-dancer` | 6 | 78／201／474 | 全 0 |
+| `steezy-what-is-house-dance` | 17 | 44／175／438 | 全 0 |
+| `steezy-what-is-popping-dance` | 25 | 25／65／347 | 全 0 |
+| `youtube-hip-hop-bounce` | 4 | 90／507／511 | #2 60、#3 60、#4 57 |
+| `youtube-arm-waves-inside-out` | 5 | 369／510／512 | #2 61、#3 64、#4 62、#5 60 |
+| `youtube-hip-hop-fundamentals` | 3 | 501／504／512 | #2 60、#3 58 |
+| `youtube-locking-the-lock` | 2 | 381／444／507 | #2 62 |
+| `youtube-locking-running-man-skeeter-rabbit` | 4 | 223／505.5／512 | #2 64、#3 64、#4 62 |
+
+共 **179 個 chunks**（文章 161、影片 18），實際 overlap 為 0–64 tokens，16 個 chunks 有 overlap。沒有觀察到單一文章區塊或單一保留 cue 被拆成多段。23 個文章 chunks 只含標題區塊，集中在 4 篇文章，其中 19 個來自 *How To Learn Popping*。依現有規則保留標題區塊，之後可檢查這些短 chunks 是否擠掉含動作說明的搜尋結果。
+
+代表性邊界的完整正文與 overlap 分開顯示在 Git 忽略的 `local/week2.2/batch/boundary-preview.md`。
+
+- *Basics of Dance Musicality* #4 → #5 在同一小節內切分。#4 為 494 tokens，#5 為 99 tokens。#5 沿用原文第 63、65、67 行（57 tokens），新增第 69 行。同篇 #1 為 14 tokens，只含標題。
+- *Dance Tutorial Basics: Hip Hop Bounce* #3 → #4 在 cue 邊界切分。#3 為 511 tokens，尾段 #4 為 90 tokens，沿用 cue-319 到 cue-331 之間的 7 個保留 cue（57 tokens），新增保留 cue-333、cue-335、cue-337。#4 可回溯至 09:08.980–09:41.140，時間涵蓋 overlap 和所有相關來源 cue。
+
+從 repo 根目錄執行：
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_batch.py \
+  --baseline-root evaluations/rag/local/week2.1 \
+  --output-dir evaluations/rag/local/week2.2/batch
+```
+
+- 179 段均通過非空、每段新增正文、完整輸入 token 上限、overlap 預算、文字覆蓋與來源回溯檢查。重跑至獨立暫存目錄，以 `diff -qr` 和 `cmp` 得到逐位元相同的 15 份 JSON 和 summary，包含 chunk IDs。兩份 pilot JSON 也與批次對應檔案逐位元相同。原始檔及 15 份 clean JSON 執行前後 SHA-256 清單一致。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'` 為 **108 passed、5 deselected**，含既有 Starlette TestClient 棄用警告。測試使用本機 fixtures 與 token 計數替身。 `git diff --check` 通過。
+- 尚未執行批次 embedding、Qdrant ingestion、retrieval 或正式 RAG 品質評估。
+
+### Week 2.2 — 文章標題改為正文的階層前綴
+
+原批次有 23 個只含標題的 chunks。新版讓文章標題在完整 `embedding_text` 中提供小節脈絡，`text` 與其正文範圍只放非 heading records。按清理資料的 heading path 建立節點，每遇到同層標題便開始新的同層分支。每篇的 `article-structure/` JSON 保存所有標題的原文、path、父標題 block ID、原始行號與直接所屬正文 block IDs。無直接正文的父標題仍可作為下層祖先，無正文也無適用下層的標題只保存在結構。正文 chunks 使用 `heading_block_ids` 對回這些節點。即使小節只有短句，也保留。
+
+文章設定版本為 `week2.2-article-headings-2`。用同一固定 Qwen tokenizer revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` 重算含階層前綴的完整輸入，仍採 512 tokens 硬上限和 64 tokens overlap 預算。字幕輸出及 chunk IDs 逐位元一致，繼續使用 v3。
+
+| 範圍 | Chunks 前 → 後 | 最小／中位／最大 tokens 前 → 後 |
+| --- | ---: | --- |
+| 全部 15 份 | 179 → 154 | 14／119／512 → 32／139／512 |
+| 10 篇文章 | 161 → 136 | 14／105／500 → 32／122.5／507 |
+| 5 支影片 | 18 → 18 | 向量輸入逐位元一致 |
+
+| 文章來源 ID | Chunks 前 → 後 | 最小／中位／最大 tokens 前 → 後 |
+| --- | ---: | --- |
+| `steezy-how-to-be-a-good-dancer` | 18 → 17 | 23／118.5／278 → 61／112／268 |
+| `steezy-how-to-execute-movement` | 5 → 5 | 119／218／284 → 109／208／274 |
+| `steezy-basics-dance-musicality` | 8 → 6 | 14／109.5／494 → 40／164.5／504 |
+| `steezy-how-to-freestyle-dance-2` | 9 → 9 | 82／157／275 → 73／147／267 |
+| `steezy-how-to-learn-popping` | 55 → 36 | 23／63／269 → 37／80／263 |
+| `steezy-how-to-take-a-dance-class-2` | 9 → 8 | 55／267／500 → 47／260.5／507 |
+| `steezy-how-to-train-your-foundation-fundamentals-2` | 9 → 9 | 42／193／254 → 32／190／250 |
+| `steezy-how-to-train-your-musicality-as-a-dancer` | 6 → 6 | 78／201／474 → 66／191／457 |
+| `steezy-what-is-house-dance` | 17 → 17 | 44／175／438 → 38／166／431 |
+| `steezy-what-is-popping-dance` | 25 → 23 | 25／65／347 → 40／62／330 |
+
+- *How To Learn Popping* 舊 #3 的 Hitting 標題（第 31 行）獨立成段。新版保存在結構；第 35、37 行正文歸到新版 #2，前綴保留原本的 `WEEK 1 > Learn how to hit:`（第 29、33 行標題）。第 31、33 行在來源同為二級標題，因此第 31 行的技術名維持同層節點。來源中的泛用標題（例如 `Things to remember:`）仍沿用原本的週次路徑，未推定其所屬技巧。
+- *What Is Popping Dance* 原本獨立成段的 `Key moves in Popping Dance`（第 21 行）仍是 `Animation`（第 23 行）和 `The Boogaloo`（第 29 行）的父標題。兩段正文各自保留在新版 #3（第 25–27 行）和 #4（第 31–33 行），前綴共享父標題並各帶自身小節名。同層的 `Notable Poppers and Popping crews` 與 `Boogaloo Sam` 保留為獨立節點。
+- Heading-only chunks 從 23 降至 0。移除正文內重複的標題後，另有兩處同小節正文可各少用一個 chunk。所有正文 block 的 heading path 與舊批次及 clean records 一致，完整覆蓋檢查逐字通過。
+
+新版將 15 份 chunks、10 份標題結構、逐來源 summary 存在 Git 忽略的 `local/week2.2/batch-headings-v2/`；新版 pilot 在 `local/week2.2/pilot-headings-v2/`。原 `batch/` 與 `chunks/` 保存修改前的實驗產物。重跑新版時使用新版輸出路徑：
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_batch.py \
+  --baseline-root evaluations/rag/local/week2.1 \
+  --output-dir evaluations/rag/local/week2.2/batch-headings-v2
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.py \
+  --input-dir evaluations/rag/local/week2.1/clean-v3-baseline \
+  --output-dir evaluations/rag/local/week2.2/pilot-headings-v2
+```
+
+- 新批次在獨立目錄重跑，chunks、標題結構與 summary 以 `diff -qr` 核對逐位元一致。新版 pilot 的兩份 chunks 及文章標題結構與新版批次相應檔案以 `cmp` 核對一致。所有輸入雜湊仍與原批次相同。核對全部 heading records 可從標題結構找回，正文來源、含前綴的 token 上限與新增內容驗證均通過。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**109 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。`git diff --check` 通過。
+- 批次 embedding、Qdrant ingestion、retrieval 與正式品質評估尚未執行。這輪觀察是結構及覆蓋驗證，retrieval 是否改善仍未驗證。
+
+### 本輪交接與後續評估範圍
+
+- 本輪採用 v3 去重及其 `chunking_input`，排除整行 `[Music]`、`[Applause]`。ASR 漏字與錯字維持原樣；數拍疑點留有追蹤記錄，逐支影片完整聽音不是這次 baseline 的前置步驟。
+- 模型使用 Qwen/Qwen3-Embedding-0.6B 的固定 revision 及隔離環境。CPU／float32 的 1024 維正規化 smoke test 已驗證中英 query instruction 和英文文件編碼流程。其自製短句與相似度紀錄只用於功能驗證。
+- **目前批次為 `local/week2.2/batch-headings-v2/` 的 154 段**，其中 136 段文章、18 段影片，沒有 heading-only chunks。前面的 179 段及其執行結果是舊版實驗，重跑請使用新版段落中的輸出路徑。第三方文本、字幕、模型快取與本機產物均維持本機保存。
+- 下次先準備並審查 retrieval 評估集，再依序執行批次 embedding、Qdrant ingestion 和 retrieval baseline。這些步驟與正式 retrieval 品質評估均未執行。

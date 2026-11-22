@@ -22,6 +22,7 @@ YOUTUBE_HEADER = ["WEBVTT", "Kind: captions", "Language: en", ""]
 CUE_ID = re.compile(r"[A-Za-z0-9_-]+")
 CUE_ENTITY = re.compile(r"&(#(?:[xX][0-9a-fA-F]+|[0-9]+)|[A-Za-z][A-Za-z0-9]*);")
 CUE_HINT = re.compile(r"\[[^\[\]]+\]")
+CHUNKING_EXCLUDED_HINTS = {"[Music]", "[Applause]"}
 
 
 def sha256(content):
@@ -262,10 +263,25 @@ def merge_transcript(records, display_lines):
         )
         offset += len(text) + 1
     merged = " ".join(segment["text"] for segment in segments)
+    chunking_spans = []
+    excluded = []
+    chunking_offset = 0
+    for segment in segments:
+        if segment["text"] in CHUNKING_EXCLUDED_HINTS:
+            excluded.append(segment)
+            continue
+        end = chunking_offset + len(segment["text"])
+        chunking_spans.append({**segment, "char_range": [chunking_offset, end]})
+        chunking_offset = end + 1
     before = " ".join(cue["plain_text"] for cue in records if cue["plain_text"])
     return {
         "version": TRANSCRIPT_VERSION, "text": merged, "spans": segments,
         "removals": removals, "doubts": doubts,
+        "chunking_input": {
+            "text": " ".join(span["text"] for span in chunking_spans),
+            "spans": chunking_spans,
+            "excluded_markers": excluded,
+        },
         "stats": {
             "cues": len(records), "plain_chars": len(before), "merged_chars": len(merged),
             "removed_chars": len(before) - len(merged), "removed_lines": len(removals),
