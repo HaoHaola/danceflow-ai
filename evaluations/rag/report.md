@@ -339,7 +339,7 @@ Query: <query>
 | How To Execute Movement For Beginner Dancers | 5 | 119, 284, 261, 134, 218 | 119 / 218 / 284 | 0, 0, 0, 0, 0 |
 | Dance Tutorial Basics: Hip Hop Bounce | 4 | 508, 506, 511, 90 | 90 / 507 / 511 | 0, 60, 60, 57 |
 
-完整 JSON 位於 Git 忽略的 `local/week2.2/chunks/`。`local/week2.2/boundary-preview.md` 列出文章 #2–4 和影片 #1–3 的完整正文，分別標記 overlap 與新增正文。文章這三段在各自小節內就能容納，因此 overlap 均為 0。影片 #2、#3 各有 60 tokens 來自前一 chunk。
+實驗時將完整 JSON 寫入 Git 忽略的 `local/week2.2/chunks/`，該目錄已刪除。`local/week2.2/boundary-preview.md` 列出文章 #2–4 和影片 #1–3 的完整正文，分別標記 overlap 與新增正文。文章這三段在各自小節內就能容納，因此 overlap 均為 0。影片 #2、#3 各有 60 tokens 來自前一 chunk。
 
 從 repo 根目錄執行：
 
@@ -356,7 +356,7 @@ evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.
 
 ### Week 2.2 — 選定的 15 份來源完成批次 chunking
 
-輸入使用 `local/week2.1/manifest.json`、`validation-summary-v3-baseline.json` 及 `clean-v3-baseline/`。批次入口只依固定的 15 個來源 ID 開檔，核對 manifest、驗證摘要中的 clean JSON SHA-256、原始來源雜湊與網址。5 支影片均使用 v3 投影，仍只排除整行 `[Music]`、`[Applause]`，ASR 原文維持。逐來源輸入 SHA-256 與完整 token 序列保存在本機 `local/week2.2/batch/summary.json`。
+輸入使用 `local/week2.1/manifest.json`、`validation-summary-v3-baseline.json` 及 `clean-v3-baseline/`。批次入口只依固定的 15 個來源 ID 開檔，核對 manifest、驗證摘要中的 clean JSON SHA-256、原始來源雜湊與網址。5 支影片均使用 v3 投影，仍只排除整行 `[Music]`、`[Applause]`，ASR 原文維持。當時將逐來源輸入 SHA-256 與完整 token 序列寫入本機 `local/week2.2/batch/summary.json`。
 
 沿用 `week2.2-pilot-1` 和 Qwen tokenizer revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。文章分小節並合併完整區塊，字幕沿用連續保留 cue。完整 `embedding_text` 使用原 tokenizer 計數，含來源標題、小節及特殊 tokens，最多 512；重複正文的 overlap 預算為 64 tokens，每段須有新增正文。本輪維持相同規則，讓批次結果可直接與兩份 pilot 輸出比對。
 
@@ -380,7 +380,7 @@ evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.
 
 共 **179 個 chunks**（文章 161、影片 18），實際 overlap 為 0–64 tokens，16 個 chunks 有 overlap。沒有觀察到單一文章區塊或單一保留 cue 被拆成多段。23 個文章 chunks 只含標題區塊，集中在 4 篇文章，其中 19 個來自 *How To Learn Popping*。依現有規則保留標題區塊，之後可檢查這些短 chunks 是否擠掉含動作說明的搜尋結果。
 
-代表性邊界的完整正文與 overlap 分開顯示在 Git 忽略的 `local/week2.2/batch/boundary-preview.md`。
+實驗時將代表性邊界的完整正文與 overlap 分開寫入 Git 忽略的 `local/week2.2/batch/boundary-preview.md`。
 
 - *Basics of Dance Musicality* #4 → #5 在同一小節內切分。#4 為 494 tokens，#5 為 99 tokens。#5 沿用原文第 63、65、67 行（57 tokens），新增第 69 行。同篇 #1 為 14 tokens，只含標題。
 - *Dance Tutorial Basics: Hip Hop Bounce* #3 → #4 在 cue 邊界切分。#3 為 511 tokens，尾段 #4 為 90 tokens，沿用 cue-319 到 cue-331 之間的 7 個保留 cue（57 tokens），新增保留 cue-333、cue-335、cue-337。#4 可回溯至 09:08.980–09:41.140，時間涵蓋 overlap 和所有相關來源 cue。
@@ -427,7 +427,7 @@ evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_batch.
 - *What Is Popping Dance* 原本獨立成段的 `Key moves in Popping Dance`（第 21 行）仍是 `Animation`（第 23 行）和 `The Boogaloo`（第 29 行）的父標題。兩段正文各自保留在新版 #3（第 25–27 行）和 #4（第 31–33 行），前綴共享父標題並各帶自身小節名。同層的 `Notable Poppers and Popping crews` 與 `Boogaloo Sam` 保留為獨立節點。
 - Heading-only chunks 從 23 降至 0。移除正文內重複的標題後，另有兩處同小節正文可各少用一個 chunk。所有正文 block 的 heading path 與舊批次及 clean records 一致，完整覆蓋檢查逐字通過。
 
-新版將 15 份 chunks、10 份標題結構、逐來源 summary 存在 Git 忽略的 `local/week2.2/batch-headings-v2/`；新版 pilot 在 `local/week2.2/pilot-headings-v2/`。原 `batch/` 與 `chunks/` 保存修改前的實驗產物。重跑新版時使用新版輸出路徑：
+新版將 15 份 chunks、10 份標題結構、逐來源 summary 存在 Git 忽略的 `local/week2.2/batch-headings-v2/`；新版 pilot 在 `local/week2.2/pilot-headings-v2/`。舊版批次 `batch/` 與舊版 pilot `chunks/` 的本機產物均已刪除。重跑新版時使用新版輸出路徑：
 
 ```sh
 export HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1
@@ -449,3 +449,44 @@ evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.
 - 模型使用 Qwen/Qwen3-Embedding-0.6B 的固定 revision 及隔離環境。CPU／float32 的 1024 維正規化 smoke test 已驗證中英 query instruction 和英文文件編碼流程。其自製短句與相似度紀錄只用於功能驗證。
 - **目前批次為 `local/week2.2/batch-headings-v2/` 的 154 段**，其中 136 段文章、18 段影片，沒有 heading-only chunks。前面的 179 段及其執行結果是舊版實驗，重跑請使用新版段落中的輸出路徑。第三方文本、字幕、模型快取與本機產物均維持本機保存。
 - 下次先準備並審查 retrieval 評估集，再依序執行批次 embedding、Qdrant ingestion 和 retrieval baseline。這些步驟與正式 retrieval 品質評估均未執行。
+
+### Week 2.2 — Retrieval 評估集 5 題 pilot
+
+以 `local/week2.1/clean-v3-baseline/` 與 `local/week2.2/batch-headings-v2/` 為輸入。比對 15 份 clean JSON 與批次摘要的 SHA-256，並確認 154 個 chunk IDs 可由輸入雜湊、chunking 設定與來源順序重算。批次摘要 SHA-256 為 `ab88dba3eba8486c83d5615fa12cdcd99ced80264d942b9f2689f6e8516ed9d4`。資料集另存各來源的原始快照雜湊（沿用 metadata）、clean 和 chunks 檔案雜湊、清理／transcript 版本及完整 chunking 設定。文章用 `week2.2-article-headings-2`，字幕用 transcript v3 及 `week2.2-pilot-1`。
+
+草稿與審查預覽分別寫入 Git 忽略的 `local/week2.2/retrieval-pilot-v1/dataset.json` 與 `review.md`。5 題涵蓋繁中 Hip Hop Bounce、Musicality、Freestyle，以及英文 Arm Wave、Popping Hit。對 15 份語料檢查可直接支持練習步驟的文字。只談同類動作的段落、指向外部示範的段落，以及需要看影片才能辨認的動作都沒有列入。影片僅採文字可判讀的 cue，ASR 保持原樣。
+
+- 每筆證據記錄要點、相關性理由、chunk 內字元範圍、原始行號，以及 clean block／cue 內零起算、右端不含的字元範圍。文章記錄 heading path，字幕記錄保留 cue 的完整起訖時間。時間粒度為 cue，文章連結指向來源頁並另列小節。
+- `single_chunk` 表示某個 chunk 可涵蓋該組證據。`all_required` 表示具體的作答方式需要合併多段。每組分別記錄 `complete_for_group` 與 `partial_for_group`，同一 chunk 可完整支持較短的作答方式，並只支持較詳盡作答方式的一部分。`answer_options[].any_of` 保留可獨立採用的替代組。相同證據跨 overlap 時保留涵蓋其完整範圍的 chunk IDs。
+- Bounce 字幕支持基本動作及重心提示，無法診斷個人看起來僵硬的原因。Arm Wave 的文章文字支持逐點拆開與慢速 drill，缺少完整 12 點順序；字幕可驗證向外傳遞的順序，兩種練法各自成組。所有題目仍為 `needs_review`，語料的正式評估資格沿用既有狀態。
+
+從 repo 根目錄執行 `python3 -B evaluations/rag/validate_retrieval_pilot.py`，結果為 **5 題、33 筆證據、15 份 clean sources、154 個 chunks 驗證通過**。驗證包含唯一 ID、語言配比、批次鎖定、證據全文與範圍、clean block／cue 映射、overlap 與證據組完整性。這次沒有執行批次 embedding、Qdrant ingestion、retrieval 或正式品質評估。
+
+#### 5 題 pilot 相關性標籤修訂
+
+沿用同一批 15 份 clean sources、154 個 chunks 與 33 筆證據，資料集 schema 升為 2。每題的 `minimum_sufficient.evaluation_chunk_sets` 外層為 OR，內層為 AND。同一組內重複 ID 只計一次，原文證據細節仍逐筆保留。`supplemental_group_ids` 收錄 partial 與擴充作答證據。只有擴充答案確實需要不同 chunks 時，才使用 `all_required`。字幕 overlap 的等價片段可替代其所覆蓋的證據。
+
+- Bounce 的「下拍時機」改為 partial，雙腳彎膝、臀部下沉再回升的 chunk 可獨立作答。單腳重心是同一 chunk 內的擴充。
+- Arm Wave 人工修正僅適用 12-point 組。`steezy-how-to-learn-popping:47f727ef938599c5:0006` 與 `steezy-how-to-learn-popping:47f727ef938599c5:0007` 支持逐點練習、慢練與拍數，文字缺少完整 12 點及順序。兩段均為 partial，移出充分方案。向外四拍仍可由單一 chunk 支持。
+- Musicality、Popping Hit、Freestyle 的單段作答方式各自保留為 OR 替代方案。Musicality 的聽辨加動作質感、Popping Hit 的收放加單部位 drill，列為 `all_required` 擴充方案。
+
+`python3 -B evaluations/rag/validate_retrieval_pilot.py` 通過，確認 5 題、33 筆證據、15 份 clean sources、154 個 chunks，以及最小證據方案的 OR／AND、ID 去重和 partial 排除規則。5 題維持 `needs_review`。Embedding 與 retrieval 未執行。
+
+#### 30 題草稿與人工審查進度
+
+2026-11-24（Asia/Taipei），使用者於本次對話確認原 5 題的問題、答案要點及修正後的證據標註可以採用。原 5 題加入 `approved`、日期、審查人與確認依據。原始標註及 Arm Wave 人工修正紀錄保留。Bounce 的下拍時機，以及 12-point 的 `0006`、`0007` 仍為 `partial`。
+
+沿用 schema 2 及同一目錄內的 `dataset.json` 與 `review.md`。新增繁中 12 題、英文 13 題，合計 30 題（繁中 15、英文 15），新增題全為 `needs_review`。全集證據涵蓋 10 篇文章與 5 支影片字幕，包括概念辨析、節奏與動作練習、常見課堂指令及動作轉換。新增 24 題有單段充分方案。Dime Stop 與 Strobing 比較題使用 AND 組合，兩段各自提供一半的定義或關係。替代方案沿用 OR，同一方案內的重複 chunk ID 只計一次。字幕證據以可判讀的文字片段為限，正式語料評估資格維持既有狀態。
+
+`python3 -B evaluations/rag/validate_retrieval_pilot.py` 通過。驗證 30 個唯一題目 ID、繁中及英文各 15 題、5 題已審查、25 題待審查、61 筆證據及其範圍與映射。仍使用 15 份 clean sources 與 `batch-headings-v2` 的 154 個 chunks，批次摘要 SHA-256 為 `ab88dba3eba8486c83d5615fa12cdcd99ced80264d942b9f2689f6e8516ed9d4`。另將原 5 題與擴充前 JSON 逐欄比對，差異限於審查狀態與紀錄。未執行 embedding、Qdrant ingestion 或 retrieval。
+
+#### Week 2.2 收尾與版本鎖定
+
+2026-11-24（Asia/Taipei），使用者在本次對話確認快速審閱表中的新增 25 題皆可採用。新增題的審查紀錄保存日期、審查人及確認依據。原 5 題的核准、修正與證據判定保留。現行版本 `week2.2-retrieval-set-v1` 為 **30 題全數 approved**（繁中與英文各 15 題），共 **61 筆證據**。Q1 下拍時機與 Q2 12-point 的兩段文章證據維持 partial。充分方案的 OR／AND 關係未變。
+
+- 最終 chunk 批次為 `batch-headings-v2`，**154 段（文章 136、影片 18、純標題 0）**。Qwen3-Embedding-0.6B 固定 revision 的選型及本機 embedding smoke test 已完成。
+- [版本鎖定檔](retrieval-set-v1.lock.json) 記錄批次摘要 SHA-256、評估集 SHA-256 `ac192e43f8450ffd2ce05e387aac48dcd31dffcccd5d1e236ada35f69e35f57b` 及審查預覽 SHA-256。含摘錄的 `dataset.json` 與 `review.md` 存於 Git 忽略的 `local/week2.2/retrieval-pilot-v1/`。以 [README](../../README.md#run-the-embedding-smoke-test-and-chunking) 的本機輸入、固定 tokenizer 和指令重建 chunks，再用原始核准的本機標註副本重跑驗證。鎖定檔可驗證副本內容。
+- 從 repo 根目錄執行 `python3 -B evaluations/rag/validate_retrieval_pilot.py`，驗證 30 題、61 筆證據、15 份來源和 154 段。另以既有快取、`HF_HUB_OFFLINE=1` 與固定 Qwen tokenizer 呼叫 `chunk_batch.verify_chunks`，15 份來源共 154 段通過，這輪只載入 tokenizer。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -m 'not mysql'`，**112 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。CI 的 API job 在 `backend/` 執行 `python -m pytest -m "not mysql"`，沒有 paths filter 或限制 RAG 模組的收集設定。RAG prep、chunking 和評估集驗證的測試都位於 `backend/tests/test_rag_*.py`。CI 使用自製 fixtures 與替代計數器，固定 Qwen tokenizer 重算及正式標註驗證在本機執行。
+
+Week 2.2 結束於 chunking 與評估集完成。Week 2.3 待辦依序為批次 embedding、Qdrant ingestion 和 dense retrieval baseline。

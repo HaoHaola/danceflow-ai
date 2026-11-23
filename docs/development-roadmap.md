@@ -135,6 +135,10 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 
 **Acceptance:** source-linked answers; `evaluations/rag/` includes dataset, script, result table, and honest interpretation; no fabricated benchmark numbers.
 
+**Week 2.2 checkpoint (complete):** Finalize the 154-chunk local corpus and the 30-question approved evaluation set. Select Qwen3-Embedding-0.6B and verify the offline embedding smoke test.
+
+**Week 2.3 checkpoint (pending):** Embed the locked chunk batch, ingest it into Qdrant, and run the dense retrieval baseline against the approved evaluation set.
+
 ### Week 3 — Personalized Coach, LangGraph and training history
 
 **IBM focus:** Agent Fundamentals and LangChain/LangGraph agent topics.

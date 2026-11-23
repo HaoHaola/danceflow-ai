@@ -12,7 +12,8 @@ reading weekly training plans. The training-plan draft endpoint is a placeholder
 | DF-005 | GitHub Actions CI added an API job and separate MySQL 8.4 matrix jobs for the DF-003 and DF-004 integration suites. |
 | DF-005.1 | Shared MySQL fixtures and a single MySQL integration job. The API job runs all tests without the `mysql` marker, including offline corpus tests. |
 | Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
-| Week 2.2 | Qwen embedding smoke test and local chunking completed. The current `batch-headings-v2` contains 154 chunks across 15 sources. |
+| Week 2.2 | Finalized 154 chunks, approved the 30-question retrieval set, and completed Qwen model selection and the local embedding smoke test. |
+| Week 2.3 | Pending. Batch embedding, Qdrant ingestion, and a dense retrieval baseline. |
 
 See the [development progress](docs/progress.md) for milestone history and the
 [roadmap](docs/development-roadmap.md) for planned capabilities.
@@ -235,8 +236,7 @@ video is outside this baseline.
 **Current input** is `evaluations/rag/local/week2.1/clean-v3-baseline/`.
 **Current chunks** are in
 `evaluations/rag/local/week2.2/batch-headings-v2/` (154 total, 136 article
-and 18 video, zero heading-only). The earlier 179-chunk batch is retained for
-comparison under `local/week2.2/batch/`. Third-party snapshots, captions,
+and 18 video, zero heading-only). The earlier 179-chunk batch was removed locally. Its results are recorded in the [RAG report](evaluations/rag/report.md). Third-party snapshots, captions,
 clean JSON, chunks and model cache are stored in the Git-ignored
 `evaluations/rag/local/` directory.
 
@@ -282,6 +282,24 @@ embedding path runs. Retrieval quality remains unmeasured. See the
 [model comparison, full instruction and smoke results](evaluations/rag/report.md#week-21--embedding-選型與本機-smoke-test)
 and the [chunking settings and comparison](evaluations/rag/report.md#week-22--文章標題改為正文的階層前綴).
 
-Next, prepare and review the retrieval evaluation set, then embed the
-154 chunks, ingest them into Qdrant and run the retrieval baseline. Each
-of these steps is pending. [Development progress](docs/progress.md)
+### Verify the approved retrieval set
+
+`week2.2-retrieval-set-v1` contains 30 approved questions (15 Traditional
+Chinese and 15 English) and 61 evidence entries. The Git-ignored
+`evaluations/rag/local/week2.2/retrieval-pilot-v1/` directory contains
+`dataset.json` and the human-readable `review.md`. Use the original approved
+local copies, along with the clean inputs and the chunk batch reproduced by
+the commands above. The release lock records hashes for both annotation
+files and the chunk summary.
+
+```sh
+python3 -B evaluations/rag/validate_retrieval_pilot.py
+```
+
+The existing API CI job runs RAG preparation, chunking and annotation-validator
+unit tests using synthetic fixtures and a substitute token counter. The
+cached Qwen tokenizer check and the approved dataset validation run locally.
+See the [RAG report](evaluations/rag/report.md) for the locked versions and checks.
+
+Week 2.3 will embed the 154 chunks, ingest them into Qdrant, and run the dense
+retrieval baseline. All three steps are pending.
