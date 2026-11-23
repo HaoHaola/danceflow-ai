@@ -65,3 +65,31 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 
 - Week 2 資料準備交付到 transcript v3。ASR 錯字保留，`cue-169`、`cue-243` 尚待影片抽查，整份字幕人工審核為 `pending`。最新本機產物在 `evaluations/rag/local/transcript-v3/`。遠端驗證見 [RAG 實驗紀錄](../evaluations/rag/report.md)。
 - [PR #3](https://github.com/HaoHaola/danceflow-ai/pull/3) 的實作提交 `cb827e3` 已通過 [API 與 MySQL CI](https://github.com/HaoHaola/danceflow-ai/actions/runs/44914866078)。
+
+- PR #3 已合併至 `main`，merge commit 為 `9c6464c`。Week 2.1 從此提交開始。
+
+## Week 2.1 第一批語料已完成本機收集與清理
+
+- 本機共 **10 篇 STEEZY 文章、5 支 Ceech 教學影片**，含先前的 2 篇文章和 1 支影片。Margarita 教授的候選影片改用 Ceech 教授的 Nustudios 教學。
+- 15 份非空 clean JSON 均通過自動驗證。原始快照、manifest 與衍生檔位於 Git 忽略的 `evaluations/rag/local/week2.1/`。五支影片皆為原語言英文自動字幕，內容人工審核待確認。
+- Backend 預設 suite **101 passed、5 skipped**。來源、快照識別、去重疑點、驗證指令與限制見 [RAG 實驗紀錄](../evaluations/rag/report.md#week-21--第一批語料收集與清理)。Chunking、embedding、Qdrant ingestion、retrieval 與 RAG baseline 均未執行。
+
+## Week 2.2 Chunking pilot 與原始批次（歷史紀錄）
+
+- 使用 Week 2.1 選定的 10 篇文章和 5 支 v3 字幕，沿用 pilot 的固定 Qwen tokenizer revision、512 tokens 完整輸入上限及 64 tokens overlap 預算。文章依小節與區塊，字幕依 cue 邊界切分。
+- Pilot 先完成 1 篇文章與 1 支影片，原始批次再產出 179 個 chunks（文章 161、影片 18），全數通過正文覆蓋、token 上限、每段新增內容及來源回溯驗證。獨立重跑逐位元一致，兩份 pilot 輸出也一致。當時將批次 JSON、summary 和邊界預覽寫入 Git 忽略的 `evaluations/rag/local/week2.2/batch/`。
+- 離線測試 **108 passed、5 deselected**，`git diff --check` 通過。逐來源分布、實際 overlap、標題單獨成塊及短尾段見 [RAG 實驗紀錄](../evaluations/rag/report.md#week-22--選定的-15-份來源完成批次-chunking)。批次 embedding、Qdrant ingestion 和 retrieval 品質評估尚未執行。
+
+### Week 2.2 文章標題處理修正
+
+- 新版 15 份來源共 **154 個 chunks**（文章 136、影片 18）。文章標題進入正文 chunks 的階層前綴，無正文標題保存於標題結構，僅含標題的 chunks 由 23 降至 0。5 份字幕 chunks 與舊批次逐位元一致。
+- 新版在 Git 忽略的 `evaluations/rag/local/week2.2/batch-headings-v2/`。正文與標題回溯、token 預算、重跑一致性通過，離線測試 **109 passed、5 deselected**。批次 embedding 與 retrieval 品質尚未評估。[前後比較與重跑指令](../evaluations/rag/report.md#week-22--文章標題改為正文的階層前綴)
+
+### 本輪結案與下次接續
+
+- 採用 transcript v3 去除相鄰滾動字幕重複，衍生輸入只排除整行 `[Music]`、`[Applause]`。保留 ASR 的漏字與錯字，本輪 baseline 不以逐支影片聽音為前提。
+- 選用 Qwen/Qwen3-Embedding-0.6B，考量中英跨語言檢索、0.6B 規模、SentenceTransformers 支援及 Apache-2.0。模型選型、候選比較和完整 query instruction 見 [embedding 紀錄](../evaluations/rag/report.md#week-21--embedding-選型與本機-smoke-test)。固定 revision 的 CPU／float32 本機 smoke test 通過，產生 1024 維 L2 正規化向量。檢索品質仍待評估。
+- **目前採用 `batch-headings-v2` 的 154 個 chunks**。舊版 179 段的本機批次已刪除，實驗結果仍見 RAG 實驗紀錄。
+- **Week 2.2 已完成**。Retrieval 評估集固定為 `week2.2-retrieval-set-v1`，共 **30 題（繁中 15、英文 15）與 61 筆證據**，全部於 2026-11-24 獲使用者確認並標為 `approved`。Q1 下拍時機和 Q2 的兩段 12-point 證據維持 `partial`。
+- 本機資料集與預覽位於 `evaluations/rag/local/week2.2/retrieval-pilot-v1/`。Git 追蹤 `evaluations/rag/retrieval-set-v1.lock.json`，記錄版本及 SHA-256；原文摘錄留在本機。完整標註驗證與固定 Qwen tokenizer 的 154 段計數驗證均通過。[RAG 實驗紀錄](../evaluations/rag/report.md#week-22-收尾與版本鎖定)
+- **Week 2.3 待辦**。依序執行批次 embedding、匯入 Qdrant、跑 dense retrieval baseline。

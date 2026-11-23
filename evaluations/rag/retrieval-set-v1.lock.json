@@ -1,0 +1,14 @@
+{
+  "release_version": "week2.2-retrieval-set-v1",
+  "dataset_sha256": "ac192e43f8450ffd2ce05e387aac48dcd31dffcccd5d1e236ada35f69e35f57b",
+  "preview_sha256": "bd1017e758c1fd24c0626eb92e39162dfc8c559dfdee4b0151d3d87338d8cdaf",
+  "schema_version": 2,
+  "batch_summary_sha256": "ab88dba3eba8486c83d5615fa12cdcd99ced80264d942b9f2689f6e8516ed9d4",
+  "questions": 30,
+  "approved": 30,
+  "evidence_entries": 61,
+  "languages": {
+    "en": 15,
+    "zh-Hant": 15
+  }
+}

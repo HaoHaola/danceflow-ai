@@ -1,5 +1,22 @@
-# danceflow-ai
-AI-Powered Street Dance Coaching and Crew Management Platform
+# DanceFlow AI
+
+DanceFlow AI is a street dance coaching and crew management platform in development.
+The current backend supports local user creation and lookup, as well as saving and
+reading weekly training plans. The training-plan draft endpoint is a placeholder.
+
+## Project progress
+
+| Milestone | Delivered |
+| --- | --- |
+| DF-001–DF-004 | FastAPI health and draft endpoints, local MySQL and Alembic migrations, user creation and lookup, and weekly training plan APIs. |
+| DF-005 | GitHub Actions CI added an API job and separate MySQL 8.4 matrix jobs for the DF-003 and DF-004 integration suites. |
+| DF-005.1 | Shared MySQL fixtures and a single MySQL integration job. The API job runs all tests without the `mysql` marker, including offline corpus tests. |
+| Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
+| Week 2.2 | Finalized 154 chunks, approved the 30-question retrieval set, and completed Qwen model selection and the local embedding smoke test. |
+| Week 2.3 | Pending. Batch embedding, Qdrant ingestion, and a dense retrieval baseline. |
+
+See the [development progress](docs/progress.md) for milestone history and the
+[roadmap](docs/development-roadmap.md) for planned capabilities.
 
 ## Run the DF-001 backend
 
@@ -50,8 +67,9 @@ python -m app.db
 ```
 
 The check connects to `127.0.0.1` on `MYSQL_HOST_PORT` (default `3307`) and
-reports whether `SELECT 1` returns `1`. The FastAPI endpoints and their tests
-can run independently of MySQL and `.env`.
+reports whether `SELECT 1` returns `1`. The health and draft endpoints and the
+non-MySQL test suite can run without MySQL and `.env`. User and saved-plan
+endpoints require the migrated database.
 
 From the repository root, use `docker compose stop mysql` to stop the service
 or `docker compose down` to remove the container and network while retaining
@@ -92,13 +110,25 @@ path without opening a connection. An online upgrade modifies the schema and
 revision history, and MySQL DDL can implicitly commit. Downgrading the first
 revision drops `users` and its data.
 
-## Run tests
+## Run tests and CI
 
 From `backend/`, activate `.venv` and install the development dependencies before running the tests.
 
 ```sh
 python -m pytest
+python -m pytest -m "not mysql"
 ```
+
+The first command skips MySQL integration tests by default. The second selects
+the same tests as the CI API job, including the offline corpus tests. See
+[MySQL integration tests](#run-mysql-integration-tests) for the isolated test
+database setup and the `RUN_MYSQL_TESTS=1` opt-in.
+
+[GitHub Actions CI](.github/workflows/ci.yml) runs on pull requests targeting
+`main`, pushes to `main`, and manual dispatch. The MySQL job uses an isolated
+MySQL 8.4 service, runs `alembic upgrade head` and `alembic check`, and checks
+the JUnit report for at least one test case and zero skips. CI is operational.
+CD and actual deployment are pending.
 
 ## Create and look up a local user (DF-003)
 
@@ -192,3 +222,84 @@ on its own from `backend/`.
 RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_users_mysql.py
 RUN_MYSQL_TESTS=1 .venv/bin/python -m pytest tests/test_training_plans_mysql.py
 ```
+
+## Local RAG preparation
+
+The selected corpus contains **10 STEEZY articles and 5 Ceech lessons**.
+Articles retain their original block and heading structure. Caption
+preparation uses transcript v3 to remove adjacent rolling duplicates. The
+derived chunking input excludes whole-line `[Music]` and `[Applause]` markers
+while retaining cue timestamps and line references. ASR omissions and
+transcription errors remain as captured, and a full listening review of every
+video is outside this baseline.
+
+**Current input** is `evaluations/rag/local/week2.1/clean-v3-baseline/`.
+**Current chunks** are in
+`evaluations/rag/local/week2.2/batch-headings-v2/` (154 total, 136 article
+and 18 video, zero heading-only). The earlier 179-chunk batch was removed locally. Its results are recorded in the [RAG report](evaluations/rag/report.md). Third-party snapshots, captions,
+clean JSON, chunks and model cache are stored in the Git-ignored
+`evaluations/rag/local/` directory.
+
+Article chunks carry the title and source heading hierarchy in
+`embedding_text`. Video chunks combine adjacent retained cues. Both use a
+512-token limit for the full embedding input and a 64-token overlap budget.
+The pilot and the full batch passed body coverage, source traceability,
+token limit and deterministic rerun checks.
+
+### Run the embedding smoke test and chunking
+
+From the repository root, set up the separate RAG environment and cache the
+pinned Qwen revision once.
+
+```sh
+backend/.venv/bin/python -m venv evaluations/rag/local/.embedding-venv
+evaluations/rag/local/.embedding-venv/bin/python -m pip install \
+  -r evaluations/rag/requirements-embedding.txt
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+evaluations/rag/local/.embedding-venv/bin/hf download \
+  Qwen/Qwen3-Embedding-0.6B --revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+```
+
+With the cache present, run the smoke test offline. The tokenizer-only
+chunking commands also require the selected local clean corpus and its
+validation summary.
+
+```sh
+export HF_HUB_OFFLINE=1
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/smoke_embedding.py
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.py \
+  --input-dir evaluations/rag/local/week2.1/clean-v3-baseline \
+  --output-dir evaluations/rag/local/week2.2/pilot-headings-v2
+evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_batch.py \
+  --baseline-root evaluations/rag/local/week2.1 \
+  --output-dir evaluations/rag/local/week2.2/batch-headings-v2
+```
+
+The smoke test passed on CPU with float32 and normalized 1024-dimensional
+vectors. Chinese and English queries use a retrieval instruction, while
+English documents use their text directly. The smoke test confirms the
+embedding path runs. Retrieval quality remains unmeasured. See the
+[model comparison, full instruction and smoke results](evaluations/rag/report.md#week-21--embedding-選型與本機-smoke-test)
+and the [chunking settings and comparison](evaluations/rag/report.md#week-22--文章標題改為正文的階層前綴).
+
+### Verify the approved retrieval set
+
+`week2.2-retrieval-set-v1` contains 30 approved questions (15 Traditional
+Chinese and 15 English) and 61 evidence entries. The Git-ignored
+`evaluations/rag/local/week2.2/retrieval-pilot-v1/` directory contains
+`dataset.json` and the human-readable `review.md`. Use the original approved
+local copies, along with the clean inputs and the chunk batch reproduced by
+the commands above. The release lock records hashes for both annotation
+files and the chunk summary.
+
+```sh
+python3 -B evaluations/rag/validate_retrieval_pilot.py
+```
+
+The existing API CI job runs RAG preparation, chunking and annotation-validator
+unit tests using synthetic fixtures and a substitute token counter. The
+cached Qwen tokenizer check and the approved dataset validation run locally.
+See the [RAG report](evaluations/rag/report.md) for the locked versions and checks.
+
+Week 2.3 will embed the 154 chunks, ingest them into Qdrant, and run the dense
+retrieval baseline. All three steps are pending.

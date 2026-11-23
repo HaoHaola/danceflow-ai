@@ -277,7 +277,14 @@ def test_rolling_transcript_preserves_repeated_counts_and_records_sources(corpus
     assert transcript["removals"][-1]["reason"] == "same_word_timestamps"
     assert [item["current"]["cue_id"] for item in transcript["doubts"]] == ["cue-7"]
     assert transcript["stats"]["doubts"] == 1
-    assert transcript["spans"][0]["kind"] == "hint"
+    marker = transcript["spans"][0]
+    assert marker["kind"] == "hint"
+    chunking_input = transcript["chunking_input"]
+    assert chunking_input["text"] == transcript["text"].removeprefix("[Music] ")
+    assert chunking_input["excluded_markers"] == [marker]
+    for span in chunking_input["spans"]:
+        start, end = span["char_range"]
+        assert chunking_input["text"][start:end] == span["text"]
     copied = transcript["spans"][1]
     assert (copied["start_ms"], copied["end_ms"]) == (0, 4000)
     assert [item["cue_id"] for item in copied["sources"]] == ["cue-1", "cue-2", "cue-3"]
@@ -398,3 +405,22 @@ def test_carry_after_recognized_10ms_transition(corpus, tmp_path, start, first_l
     else:
         assert transcript["text"] == "Count one step back step back raise arm"
         assert len(transcript["removals"]) == 1
+
+
+def test_chunking_input_excludes_only_whole_marker_lines(corpus, tmp_path):
+    content = (
+        "WEBVTT\n\n"
+        "00:00.000 --> 00:02.000\n[Applause]\nraise arm\n\n"
+        "00:02.000 --> 00:04.000\n[Music] keep going\n[Other]\n"
+    )
+    replace_raw(corpus, "synthetic-counts", content.encode())
+    output = tmp_path / "clean"
+    result = run_preparation(corpus, output)
+    assert result.returncode == 0, result.stderr
+    document = json.loads((output / "synthetic-counts.json").read_bytes())
+    derived = document["transcript"]["chunking_input"]
+    assert derived["text"] == "raise arm [Music] keep going [Other]"
+    marker, = derived["excluded_markers"]
+    assert marker["text"] == "[Applause]"
+    assert marker["sources"][0]["cue_id"] == "cue-1"
+    assert document["records"][0]["text"] == "[Applause]\nraise arm"
