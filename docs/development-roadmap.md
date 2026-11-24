@@ -137,7 +137,7 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 
 **Week 2.2 checkpoint (complete):** Finalize the 154-chunk local corpus and the 30-question approved evaluation set. Select Qwen3-Embedding-0.6B and verify the offline embedding smoke test.
 
-**Week 2.3 checkpoint (pending):** Embed the locked chunk batch, ingest it into Qdrant, and run the dense retrieval baseline against the approved evaluation set.
+**Week 2.3 checkpoint (complete locally):** Offline embedding and persistent Qdrant ingestion are verified for the locked 154-chunk batch. The exact dense baseline retrieved a complete minimum evidence plan at top 5 for 29 of 30 approved questions. The GitHub Actions Qdrant job has been verified locally and awaits a remote run.
 
 ### Week 3 — Personalized Coach, LangGraph and training history
 

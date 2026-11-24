@@ -100,3 +100,46 @@ jobs:
               )
           print(f"Verified {len(cases)} MySQL test cases ran without skips.")
           PY
+
+  qdrant:
+    name: Qdrant integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.16.3
+        ports:
+          - '127.0.0.1:6333:6333'
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Qdrant test dependencies
+        run: python -m pip install -r evaluations/rag/requirements-qdrant.txt 'pytest>=8.3,<10'
+      - name: Wait for Qdrant
+        run: curl -fsS --max-time 2 --retry 15 --retry-all-errors --retry-delay 1 http://127.0.0.1:6333/readyz
+      - name: Run Qdrant tests and verify execution
+        run: |
+          report="$RUNNER_TEMP/qdrant-tests.xml"
+          python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"
+          python - "$report" <<'PY'
+          import sys
+          from xml.etree import ElementTree
+
+          cases = ElementTree.parse(sys.argv[1]).findall(".//testcase")
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          if not cases or skipped:
+              raise SystemExit(
+                  f"Expected Qdrant tests to run without skips: "
+                  f"{len(cases)} reported, {len(skipped)} skipped."
+              )
+          print(f"Verified {len(cases)} Qdrant test cases ran without skips.")
+          PY
