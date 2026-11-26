@@ -94,11 +94,13 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 - 本機資料集與預覽位於 `evaluations/rag/local/week2.2/retrieval-pilot-v1/`。Git 追蹤 `evaluations/rag/retrieval-set-v1.lock.json`，記錄版本及 SHA-256；原文摘錄留在本機。完整標註驗證與固定 Qwen tokenizer 的 154 段計數驗證均通過。[RAG 實驗紀錄](../evaluations/rag/report.md#week-22-收尾與版本鎖定)
 - **Week 2.3 第一階段已驗收**。用鎖定批次離線產出 154 筆 1024 維文件向量，核對 chunk ID 映射、512-token 輸入上限、64-token overlap 預算、有限數值與 L2 norm。重跑通過產物驗證並重用向量。
 - **Week 2.3 第二階段已驗收**。既有 Compose 新增 Qdrant 1.16.3。以固定 client 1.16.2 匯入既有向量，首次、重跑與單獨重啟 Qdrant 後均通過 154 筆 exact count、UUID、向量及來源 payload 驗證。真實 Qdrant synthetic suite 6 passed，非 MySQL suite 120 passed。
-- **Week 2.3 第三階段已驗收**。30 題 exact top-5 全數通過本機 dot product 對照。充分方案成員命中與最小充分方案完成均為 29/30，繁中 15/15、英文 14/15。唯一未完成題只命中 partial。離線 suite 131 passed，真實 Qdrant suite 7 passed、零 skip。Qdrant CI workflow 步驟已本機驗證，GitHub Actions 實際執行結果待補。
+- **Week 2.3 第三階段已驗收**。30 題 exact top-5 全數通過本機 dot product 對照。充分方案成員命中與最小充分方案完成均為 29/30，繁中 15/15、英文 14/15。唯一未完成題只命中 partial。離線 suite 131 passed，真實 Qdrant suite 7 passed、零 skip。Qdrant CI workflow 步驟已本機驗證，遠端結果見下方 Week 2.3 分支交接。
 
 ### Week 2.3 分支交接
 
-- 將已在本機驗收的三階段交付與 Qdrant CI job 整理至 `feature/week2.3-dense-baseline`，供後續審查。現行 workflow 只在 push 到 `main`、以 `main` 為目標的 PR，或手動觸發時執行。單獨推送此 feature branch 不會觸發 CI，遠端測試結果待實際執行後補記。
+- 將已在本機驗收的三階段交付與 Qdrant CI job 整理至 `feature/week2.3-dense-baseline`，供後續審查。現行 workflow 只在 push 到 `main`、以 `main` 為目標的 PR，或手動觸發時執行。單獨推送此 feature branch 不會觸發 CI。
+
+- [PR #6](https://github.com/HaoHaola/danceflow-ai/pull/6) 已用 merge commit `76a0b3e4deaab5469e8bb8a0d9d5eae54c28e7e6` 合併至 `main`，保留 `a845ed9` 的提交歷史。[PR CI](https://github.com/HaoHaola/danceflow-ai/actions/runs/45862328146) 的 API、MySQL、Qdrant 三個 jobs 均通過。Week 2.5 分支已一般合併該版本的 `origin/main`。
 
 ## Week 2.4 Reranker 開發評估
 

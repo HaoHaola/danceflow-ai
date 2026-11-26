@@ -591,7 +591,9 @@ HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
   evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/evaluate_dense.py --artifact "$artifact_dir"
 ```
 
-- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**131 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增 11 個離線案例涵蓋 OR／AND、overlap 替代、partial、near ties、排名錯誤及 query token preflight。真實 Qdrant 依既有 CI 步驟執行 `python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"`，**7 passed、0 skipped**，新增案例確認固定向量、精確排名及 payload。Junit 檢查通過，GitHub Actions 遠端結果待實際執行後補記。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**131 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增 11 個離線案例涵蓋 OR／AND、overlap 替代、partial、near ties、排名錯誤及 query token preflight。真實 Qdrant 依既有 CI 步驟執行 `python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"`，**7 passed、0 skipped**，新增案例確認固定向量、精確排名及 payload。JUnit 檢查通過。
+
+- Week 2.3 [PR #6](https://github.com/HaoHaola/danceflow-ai/pull/6) 的 [CI run 45862328146](https://github.com/HaoHaola/danceflow-ai/actions/runs/45862328146) 已完成，API tests、MySQL integration tests、Qdrant integration tests 均為 `success`。PR 以 merge commit `76a0b3e4deaab5469e8bb8a0d9d5eae54c28e7e6` 進入 `main`。此 CI 結果對應 Week 2.3，五題生成結果下一步仍是人工評分及引用核對。
 
 下一個獨立比較可先固定模型及標註，量測該題充分段落的完整排名，再比較 `k=5` 與 `k=10` 的方案完成率及額外上下文成本。原始 top-5 baseline 保留。
 
