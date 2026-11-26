@@ -594,3 +594,317 @@ HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
 - 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**131 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增 11 個離線案例涵蓋 OR／AND、overlap 替代、partial、near ties、排名錯誤及 query token preflight。真實 Qdrant 依既有 CI 步驟執行 `python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"`，**7 passed、0 skipped**，新增案例確認固定向量、精確排名及 payload。Junit 檢查通過，GitHub Actions 遠端結果待實際執行後補記。
 
 下一個獨立比較可先固定模型及標註，量測該題充分段落的完整排名，再比較 `k=5` 與 `k=10` 的方案完成率及額外上下文成本。原始 top-5 baseline 保留。
+
+### Week 2.3 — 看過 baseline 後的 k 值與排名診斷
+
+2026-11-26（Asia/Taipei）。這是同一批 30 題的事後探索，品質結論限於這批題目。沿用原 baseline 的 lock、154 筆文件向量、collection、固定 Qwen revision 與 `QUERY_PROMPT`。維持 CPU／float32、L2 normalization、exact cosine 和 `1e-6` 比對容差。每題重新編碼 query 一次、查詢一次 exact top-10，以同一排名的前綴比較 k。Arm Wave 以同一 query 向量額外取得 154 筆完整排名。30 題前綴與完整排名都通過本機 dot product 對照，最大分數誤差約 `1.01e-7`。30 題的 top-5 前綴與原 baseline 一致，Arm Wave 的 top-10 也與完整排名前十筆一致。
+
+| k | 分組 | 充分方案成員命中 | 最小充分方案完成 |
+| ---: | --- | ---: | ---: |
+| 3 | 整體 | 28/30（93.3%） | 28/30（93.3%） |
+| 3 | 繁中 | 15/15（100%） | 15/15（100%） |
+| 3 | 英文 | 13/15（86.7%） | 13/15（86.7%） |
+| 5 | 整體 | 29/30（96.7%） | 29/30（96.7%） |
+| 5 | 繁中 | 15/15（100%） | 15/15（100%） |
+| 5 | 英文 | 14/15（93.3%） | 14/15（93.3%） |
+| 10 | 整體 | 30/30（100%） | 30/30（100%） |
+| 10 | 繁中 | 15/15（100%） | 15/15（100%） |
+| 10 | 英文 | 15/15（100%） | 15/15（100%） |
+
+k=3 未完成 `pilot-arm-wave`、`draft-hip-hop-shift-before-move`。k=5 只剩 `pilot-arm-wave`。k=10 全部完成。各 k 獨立依既有 OR／AND 規則計分，保留 overlap 的替代方案及 supplemental 診斷。
+
+#### Arm Wave 完整排名
+
+唯一最小充分方案需要 `youtube-arm-waves-inside-out:cef3e8ea0c9b1ba3:0003`，排名 **6**、cosine score **0.6106354**。k=3 和 k=5 均缺這段，k=10 已取回。完成任一方案所需的最小 k 是 **6**，計算方式是先取每個 AND 方案內所需段落的最大排名，再從 OR 替代方案中取最小值。
+
+| 排名 | Chunk ID | Score | 文字所提供的資訊 |
+| ---: | --- | ---: | --- |
+| 1 | `youtube-arm-waves-inside-out:cef3e8ea0c9b1ba3:0001` | 0.688655 | 介紹逐段拆解與維持起終點位置的視覺效果，未列出完整慢練順序。 |
+| 2 | `youtube-arm-waves-inside-out:cef3e8ea0c9b1ba3:0002` | 0.678708 | 有放鬆手臂、肩起與肘外移，後續多靠指示語和視覺示範。這是外向練習的 partial。 |
+| 3 | `steezy-how-to-learn-popping:47f727ef938599c5:0005` | 0.652435 | 引介 12 點拆解，這個文字段未列出各點。 |
+| 4 | `steezy-how-to-learn-popping:47f727ef938599c5:0007` | 0.652355 | 逐點練習、放鬆手和對鏡檢查等提示，缺少完整順序。 |
+| 5 | `steezy-how-to-learn-popping:47f727ef938599c5:0006` | 0.618547 | 提供慢速、原速、換邊與方向變化的拍數安排，預設已知道 12 點動作。 |
+| 6 | `youtube-arm-waves-inside-out:cef3e8ea0c9b1ba3:0003` | 0.610635 | 可由文字找回向外四拍慢練，逐次帶出肩、肘、腕後回直，並保持手臂線條。 |
+
+可觀察到第 5 與第 6 名分數差約 0.00791，超出浮點比對容差。前五筆提供拆解概念、局部動作或練習安排，核准的完整慢練步驟落在下一筆。可能原因是向量相似度偏好直接談拆解與練習的段落，而充分段的字幕含重複計數、口語及 ASR 雜訊。本輪沒有用消融實驗驗證模型對這些特徵的敏感度。
+
+#### 候選文字成本
+
+用固定 Qwen tokenizer 對每段 `embedding_text` 計數後相加，包含原有標題前綴，逐段計數時排除 special tokens，保留重疊文字的實際成本。數字代表候選池文字量，實際 LLM prompt 仍取決於選入哪些段落與組裝格式。
+
+| k | 30 題候選 tokens 合計 | 每題平均 | 每題範圍 |
+| ---: | ---: | ---: | ---: |
+| 3 | 23,000 | 766.7 | 161–1,522 |
+| 5 | 34,566 | 1,152.2 | 432–2,406 |
+| 10 | 62,456 | 2,081.9 | 685–4,253 |
+
+下一輪優先比較擴大 dense 候選池加 reranker。這批題目的充分證據已出現在 top-10，Arm Wave 只差一個順位。可檢驗 reranker 是否能把充分證據挑回較小輸出集合，再以新題驗證。BM25／hybrid 可留待檢查 dense 候選池內仍缺證據的案例。直接採用全部 10 段會比 5 段多約 81% 候選文字，本輪未衡量送入 LLM 的效果。
+
+從 repo 根目錄執行，exit 0。逐題資料、完整排名與來源文字留在 Git 忽略的 `local/week2.3/dense/diagnostics-20261125T160435584392Z.json`，原 `baseline-*.json` 保留。
+
+```sh
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/evaluate_dense.py --artifact "$artifact_dir" --diagnose
+```
+
+從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**133 passed、5 deselected**，一則既有 Starlette TestClient 棄用警告。新增 synthetic 測試覆蓋前綴、token 加總、OR／AND 與最小完成排名。 `git diff --check` 通過。
+
+### Week 2.3 — Qwen reranker 開發評估
+
+沿用已用於診斷的 30 題 approved 問題（繁中、英文各 15）及鎖定的 154 chunks。比較結果屬於開發評估。跑之前用 `git ls-remote` 確認分支 `feature/week2.3-dense-baseline` 的本機 HEAD 與遠端皆為 `a845ed9`，前一輪診斷有 5 個未提交檔案。GitHub Actions API 查該分支為 0 筆 runs。資料、原 baseline 與診斷結果以唯讀方式重用，每次實驗另寫一份帶時間戳的 local JSON。
+
+官方模型與 tokenizer 固定為 `Qwen/Qwen3-Reranker-0.6B@e61197ed45024b0ed8a2d74b80b4d909f1255473`。既有 Python 3.13.3、PyTorch 2.8.0、Transformers 4.57.6、Sentence Transformers 5.1.2。檢查本機 5.1.2 的 CrossEncoder 載入器使用序列分類模型，官方的 CausalLM 模組整合屬於較新的版本。此輪採官方相容的 Transformers `AutoModelForCausalLM` forward，用固定 revision 的 `chat_template.jinja`，讀取最末位置的 `yes` 減 `no` logits 做相關性排序。這個差值與官方 yes/no 二分類 softmax 的正類機率有相同排序。 [Qwen 固定版本模型卡](https://huggingface.co/Qwen/Qwen3-Reranker-0.6B/tree/e61197ed45024b0ed8a2d74b80b4d909f1255473) · [CrossEncoder 整合說明](https://huggingface.co/Qwen/Qwen3-Reranker-0.6B/discussions/24)
+
+官方預設 instruction 為 `Given a web search query, retrieve relevant passages that answer the query`。輸入為原 query 與 dense 已使用的 `embedding_text`，保留原來已存在的標題前綴。Reranker 只接收文字配對及固定 instruction。排序同分時保留原 dense rank。套件沿用原 venv。權重下載約 130.23 s，tokenizer／設定下載批次約 9.12 s。模型載入時間另計。
+
+- Apple M4 Pro／24 GiB。第一次 MPS／float16、SDPA 的英文 smoke 相關分數為 10.375，無關分數為 NaN，流程停止。改用 MPS／float32、eager attention 後繼續，這次同時調整 dtype 與 attention，尚無法將初次失敗歸因於單一因素。
+- 固定 batch size 2、最大長度 8192、左 padding、`logits_to_keep=1`、`use_cache=False`。實際 token 化包括固定模板、instruction、query、文件及模板特殊標記，padding 另外發生。過長時報出超量 token 數及候選序位，停止比較。候選文本量使用原 Qwen embedding tokenizer `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`，將各變體選中的原 `embedding_text` 依排名以兩個換行組裝後一起計數，不加入 special tokens。字元數採 Python Unicode `len()`。此處是文字代理量。
+- 固定既有保存的 exact top-10 與原 top-5。查詢時逐題重新執行 CPU／float32 query embedding、Qdrant exact top-10 並核對 ID、文本、payload、原始分數及排名。一次 rerank 取兩個前綴，品質只計第一輪。每次執行先跑合成中英 smoke，再用 3 題各暖機一次。正式 30 題逐題串行，共 3 輪。每題以單次牆鐘量測完整流程，MPS scores 取回 CPU 後 synchronize 才結束計時。
+
+#### 實測結果
+
+MPS／float32 smoke 全數有限。英文相關／無關為 **10.377／−9.907**，繁中為 **5.309／−9.368**。300 組開發評估配對共有 **88,866** 個未 padding 的實際模板 tokens，平均每題 **2,962.2**，最長一組 **609**，零截斷。依每兩筆左 padding 的 batch 尺寸還原，共 **106,704** 個張量位置。兩個 rerank 輸出使用相同的十組分數。
+
+下表每格依序為**成員命中／充分方案完成**，兩項各自計分。
+
+| 輸出 | 整體 | 繁中 | 英文 |
+| --- | --- | --- | --- |
+| Dense top-3 | 28/30（93.3%）／28/30（93.3%） | 15/15（100%）／15/15（100%） | 13/15（86.7%）／13/15（86.7%） |
+| Dense top-5 | 29/30（96.7%）／29/30（96.7%） | 15/15（100%）／15/15（100%） | 14/15（93.3%）／14/15（93.3%） |
+| Dense top-10 | 30/30（100%）／30/30（100%） | 15/15（100%）／15/15（100%） | 15/15（100%）／15/15（100%） |
+| Dense top-10 → rerank top-3 | 29/30（96.7%）／28/30（93.3%） | 15/15（100%）／14/15（93.3%） | 14/15（93.3%）／14/15（93.3%） |
+| Dense top-10 → rerank top-5 | 29/30（96.7%）／29/30（96.7%） | 15/15（100%）／15/15（100%） | 14/15（93.3%）／14/15（93.3%） |
+
+- **Top-3 同 k 比較。** 成員命中改善一題 `draft-hip-hop-shift-before-move`，其餘 29 題不變。充分方案完成救回同一題，但 `draft-dime-stop-versus-strobing` 退步，其他 28 題不變。後者需要兩段共同支持，rerank top-3 遺漏 `steezy-what-is-popping-dance:32283b36c08fadd5:0006`，rerank top-5 找齊。這是從 rerank top-5 縮到 top-3 唯一失去充分方案的題。
+- **Top-5 同 k 比較。** 30 題兩項指標皆無升降。Arm Wave 的充分段仍為第 6，reranker 原始 logit 差為 **5.3917**，dense score 為 **0.6106354**。兩個分數使用不同尺度。候選池已包含充分段，但這次重排仍未把它選入前五。
+- **相對 dense top-10。** Rerank top-5 遺失 Arm Wave 的充分方案，rerank top-3 再遺失 Dime Stop/Strobing 的第二段證據。結果只支持本次配對、模板與小型開發集的觀察。
+
+| 輸出 | 總字元／每題平均 | 總代理 tokens／每題平均 |
+| --- | ---: | ---: |
+| Dense top-3 | 100,920／3,364.0 | 23,021／767.4 |
+| Dense top-5 | 150,557／5,018.6 | 34,609／1,153.6 |
+| Dense top-10 | 271,281／9,042.7 | 62,542／2,084.7 |
+| Rerank top-3 | 91,428／3,047.6 | 20,909／697.0 |
+| Rerank top-5 | 148,850／4,961.7 | 34,312／1,143.7 |
+
+Rerank top-3 相對 dense top-10 減少 **66.30% 字元、66.57% tokens**，相對 dense top-3 減少 **9.41%、9.17%**。Rerank top-5 相對 dense top-10 減少 **45.13%、45.14%**，相對 dense top-5 減少 **1.13%、0.86%**。這次將選中文本組裝後再計數，前一輪 k 診斷則逐段加總。逐題絕對差異與改善／退步／不變清單保存在獨立產物。
+
+| 項目（每項 n=90） | P50 (ms) | P95 (ms) |
+| --- | ---: | ---: |
+| CPU query embedding | 74.44 | 79.85 |
+| Qdrant REST client 往返，exact k=10 | 8.85 | 16.92 |
+| Dense 路徑全程，exact k=10 | 84.86 | 92.84 |
+| 10 candidates 的 rerank（含 tokenize、forward、取回分數與排序） | 1,380.38 | 2,293.21 |
+| 完整 query embedding → Qdrant k=10 → rerank | 1,464.01 | 2,382.72 |
+
+P50／P95 對各階段的實測樣本線性插值。完整流程另以牆鐘計時。Dense top-3／top-5 品質用 k=10 前綴，未獨立量測搜尋 k=3 或 k=5。Rerank top-3 和 top-5 共用一次十段評分成本。Reranker 本機載入 **0.697 s**，query encoder **1.542 s**，下載另列。macOS Python process RSS 高水位 **3.84 GiB**。在載入、暖機及逐題後取樣，MPS current／driver allocation 的最高觀察值分別 **2.22／3.65 GiB**。這些值的範圍有重疊。MPS 取樣可能錯過推論中的瞬時峰值，未量測系統或 Qdrant 的峰值。
+
+**保留原 dense baseline。** Rerank top-5 的充分方案沒有增益，相對同 k 只少 0.86% 代理 tokens。Top-3 雖少約 9.17% tokens，卻有一題多段證據退步，且與 top-5 承擔同一評分延遲。不以本開發集估計新題表現，回答與引用品質留待生成階段。
+
+從 repo 根目錄執行，exit 0，並完成 30 題 × 3 輪核對。原 baseline 與診斷檔 SHA-256 事後比對相符。
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+dense_dir=evaluations/rag/local/week2.3/dense
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+HF_HUB_OFFLINE=1 evaluations/rag/local/.embedding-venv/bin/python -B \
+  evaluations/rag/evaluate_reranker.py --artifact "$artifact_dir" \
+  --baseline "$dense_dir/baseline-20261124T165129014791Z.json" \
+  --diagnostics "$dense_dir/diagnostics-20261125T160435584392Z.json"
+```
+
+Git 忽略的結果位於 `local/week2.3/reranker/development-20261125T163120818499Z.json`。記錄完整排名、逐題五組指標與候選量、90 筆 latency、Git HEAD／工作目錄狀態、腳本雜湊、資料與候選檔雜湊，以及完整套件版本。從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**136 passed、5 deselected**，一則既有 Starlette 棄用警告。API CI 的現有 pytest 自動收集三個新測例。這些測試使用合成資料，無需模型、MPS 或 Qdrant。遠端未執行本輪變更。
+
+### Week 2.3 — Evidence-v1 instruction 對照
+
+這個 instruction 是看過 Arm Wave 和 Dime Stop／Strobing 失敗案例後才設計的。沿用同一批 30 題 approved 題目，結果屬於開發評估。
+
+原 default 保留為 `Given a web search query, retrieve relevant passages that answer the query`。本次只替換固定 Jinja 模板的 `<Instruct>`：
+
+> Retrieve passages containing explicit textual evidence useful for answering the dance question, including definitions, movement sequences, or practice instructions. A passage may support only part of the question. Mere topic mentions or introductions to unavailable media are insufficient.
+
+固定 `Qwen/Qwen3-Reranker-0.6B@e61197ed45024b0ed8a2d74b80b4d909f1255473` 與同 revision tokenizer、MPS、float32、eager attention、batch size 2、左 padding、8192 長度上限、無 truncation。沿用模板末位置的 yes 減 no logits 與 dense rank 同分規則。從鎖定 corpus 取原本的 `embedding_text`，核對 top-10、baseline top-5、default 原始排名與標註計分。分數重跑，由同一排序取 top-3 與 top-5。
+
+小批中英文 smoke 先確認分數方向與有限值，再暖機三題。以已保存的 exact top-10 串行跑全 30 題三輪，rerank 計時含文字配對、tokenization、推論、同步取回分數與排序。只計第一輪品質。Query embedding、Qdrant 往返與端到端未重測。文字量沿用原 embedding tokenizer、雙換行組裝與排除 special tokens 的代理計數方式。
+
+重現指令如下，從 repo 根目錄執行。
+
+```sh
+dense_dir=evaluations/rag/local/week2.3/dense
+rerank_dir=evaluations/rag/local/week2.3/reranker
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/evaluate_reranker.py \
+  --instruction evidence-v1 --artifact "$artifact_dir" \
+  --baseline "$dense_dir/baseline-20261124T165129014791Z.json" \
+  --diagnostics "$dense_dir/diagnostics-20261125T160435584392Z.json" \
+  --default-result "$rerank_dir/development-20261125T163120818499Z.json"
+```
+
+實際執行 exit 0，結果為 `local/week2.3/reranker/evidence-v1-20261125T173827948586Z.json`。各格依序為成員命中／充分方案完成。繁中和英文各 15 題，整體 30 題。
+
+| 輸出 | 整體 | 繁中 | 英文 | 總字元／每題平均 | 總代理 tokens／每題平均 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dense top-3 | 28/30／28/30 | 15/15／15/15 | 13/15／13/15 | 100,920／3,364.0 | 23,021／767.4 |
+| Dense top-5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 150,557／5,018.6 | 34,609／1,153.6 |
+| Dense top-10 | 30/30／30/30 | 15/15／15/15 | 15/15／15/15 | 271,281／9,042.7 | 62,542／2,084.7 |
+| Default rerank top-3 | 29/30／28/30 | 15/15／14/15 | 14/15／14/15 | 91,428／3,047.6 | 20,909／697.0 |
+| Default rerank top-5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 148,850／4,961.7 | 34,312／1,143.7 |
+| Evidence-v1 rerank top-3 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 99,025／3,300.8 | 22,692／756.4 |
+| Evidence-v1 rerank top-5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 148,767／4,958.9 | 34,178／1,139.3 |
+
+- **同 k default。** Top-3 只有 `draft-dime-stop-versus-strobing` 的完成指標改善，成員命中全數持平。Dime Stop 定義段 `0006` 從第 4 到第 3，Strobing 的 `0013` 保持第 2，兩段都進前三。Top-5 全部題目兩項指標均持平。
+- **同 k dense。** Top-3 只有 `draft-hip-hop-shift-before-move` 在兩項指標改善，其他 29 題均持平。Top-5 全部持平。這四項對照皆無退步，包含兩個焦點案例以外的 28 題。完整逐題清單存於 JSON `comparisons`。
+- **Arm Wave。** 引介媒體的文章段 `0005` 從 default 第 1 降到第 5，仍在前五。影片充分段 `0003` 固定在第 6，因此 top-3、top-5 都沒有救回。
+- **文字量。** Evidence-v1 top-3 相對 default top-3 多 8.31% 字元、8.53% 代理 tokens，相對 dense top-3 少 1.88%、1.43%。Top-5 相對 default top-5 少 0.06%、0.39%，相對 dense top-5 少 1.19%、1.25%。
+
+Evidence-v1 的 300 組正式品質配對共 **98,466** 未 padding tokens，每題平均 **3,282.2**，最長 **641**，零截斷。與 default 相比多 9,600 tokens，每組多 32。三輪 90 筆同步 rerank 實測 P50 **1,517.45 ms**、P95 **2,422.48 ms**，以排序樣本線性插值。Default 前一輪 rerank 階段為 1,380.38／2,293.21 ms，跨輪差距是描述值。此次模型載入 1.819 s，另計。中英文 smoke 的相關／無關分數依序為 7.638／−12.213、2.968／−12.059，全部有限。
+
+Evidence-v1 可保留為 top-3 的後續驗證候選。目前保留既有 dense baseline 與 default 設定。開發集 top-3 完成改善一題、top-5 無改善，Arm Wave 仍然漏掉，且每題 rerank 中位約 1.52 s。
+
+SHA-256 已事後核對。
+
+| 產物 | SHA-256 |
+| --- | --- |
+| 鎖定 dataset | `ac192e43f8450ffd2ce05e387aac48dcd31dffcccd5d1e236ada35f69e35f57b` |
+| 原 top-5 baseline JSON | `74718bd81c9ec240d62518015a150a77568ab1dee4ce99fceeb1e72967c2e1bd` |
+| 原 top-10 診斷 JSON | `11f78bf13109319c61d645e11061965ce0b721c2ac5d2ffe9b5165abc07de1cd` |
+| 原 default rerank JSON | `58b84e84270a3e713a63fcb17f9d4cbb8f57498abc2cc07aa43015932531665b` |
+| Evidence-v1 結果 JSON | `bb25fbcd1635b13de64eb07031a18dc5b7a8cb4146325f2ac319be918122ec35` |
+
+從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**137 passed、5 deselected**，一則既有 Starlette 棄用警告。新增測試確認預設仍選原 instruction，顯式選項使用完整指定文字。 `git diff --check` 通過。結果保存在 Git 忽略的本機目錄。
+
+#### Evidence-v2 部位與動作順序
+
+在 evidence-v1 後只附加一句 `Treat descriptions of the relevant body parts and how they move together or in sequence as evidence for the queried movement, even when the movement itself is not named.` 沿用上方指令與同一批候選，把 `--instruction evidence-v1` 改成 `--instruction evidence-v2` 即可重現。中英文 smoke 通過，30 題共 300 組配對重跑一輪。模型、設定、候選、原題與計分均沿用。只與已保存的 evidence-v1 結果做逐題對照。
+
+| 輸出 | Evidence-v1 成員／完成 | Evidence-v2 成員／完成 |
+| --- | --- | --- |
+| Top-3 | 29/30／29/30 | 29/30／28/30 |
+| Top-5 | 29/30／29/30 | 30/30／30/30 |
+
+Top-5 唯一改善是 Arm Wave，充分影片段由第 6 到第 5，媒體引介由第 5 到第 6。Top-3 唯一退步是 Dime Stop／Strobing 的充分方案，Dime Stop 定義由第 3 降到第 4，Strobing 仍第 2。其餘題目在同 k 的兩項指標持平。這是看過案例後在原 30 題上的開發實驗。
+
+300 組共 107,766 個未 padding tokens，最長 672，零截斷。30 筆 rerank 階段計時 P50／P95 為 1,628.00／2,371.71 ms，本輪只跑一輪，未重測端到端。獨立結果為 Git 忽略的 `local/week2.3/reranker/evidence-v2-20261125T175608762090Z.json`，SHA-256 `c9e0a3be6eaac9259be67e4bdbbe203131ad57165b464b62915c1d2b8f0daffe`。原產物均保留。
+
+從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider tests/test_rag_reranker.py tests/test_rag_dense_evaluation.py`，17 passed，含一則既有棄用警告。`git diff --check` 通過。
+
+#### Evidence-v3 比較題單側證據簡測
+
+在 evidence-v2 後以一個空白加上 `For comparison questions, definitions and explanations of either individual concept are useful evidence, even when the passage does not mention the other concept. Do not favor a passage solely because it mentions multiple query terms.` 以上方對照指令改用 `--instruction evidence-v3` 重現。固定候選、設定與標註，只執行 v3 的一輪正式 300 組配對，另沿用原 runner 的 smoke 與暖機。使用保存候選，未重跑檢索。這是同一批 30 題的開發評估。
+
+各格為成員命中／充分方案完成。Top-3 的 v1、v2、v3 依序為 **29/30／29/30、29/30／28/30、29/30／28/30**。Top-5 依序為 **29/30／29/30、30/30／30/30、30/30／30/30**。v3 相對 v2 各題兩項指標均持平。相對 v1，只有 Arm Wave 的 top-5 兩項改善，以及 Dime Stop／Strobing 的 top-3 完成退步。
+
+v1→v2→v3 排名：Arm Wave 充分段 `0003` 為 6→5→5，媒體引介 `0005` 為 5→6→6。Dime Stop 定義 `0006` 為 3→4→4，Strobing `0013` 為 2→2→2。本次追加句未改善這批題目的指標。
+
+正式配對最長 711 tokens，零截斷。單輪附帶 30 筆 rerank 計時，P50／P95 為 1,822.03／2,567.41 ms，未重測端到端。獨立 JSON 為 Git 忽略的 `local/week2.3/reranker/evidence-v3-20261125T180549478204Z.json`，SHA-256 `443f9dffcd9f3cc307d1711a0dd1bb72c58af77bd45bf535dafc740a20f45a7f`。從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider tests/test_rag_reranker.py`，4 passed，含一則既有棄用警告。`git diff --check` 通過。
+
+#### BGE reranker 開發對照
+
+固定 `BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`，模型與 tokenizer 同 revision。使用原環境 Transformers 4.57.6、PyTorch 2.8.0，直接用 `AutoTokenizer` 產生 XLM-R 的 query/document pair，`AutoModelForSequenceClassification` 在 eval／inference mode 回傳單一分類 logit，按原始分數降序，同分按 dense rank。MPS／float32、eager attention、batch size 2。使用 BGE 的右 padding 與原始配對輸入。 [BAAI 固定版模型卡](https://huggingface.co/BAAI/bge-reranker-v2-m3/tree/953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e)
+
+鎖定 30 題、相同的原 query 與 `embedding_text`、已保存的 exact top-10。程式核對 dense 與舊 Qwen 候選、排名和既有標註，評分繼續使用原 OR／AND 規則。BGE tokenizer 逐組含 pair special tokens 預檢，300 組長度 53–592，模型及 tokenizer 共同上限 8,192。正式 30 題各一次，從同次排名切 top-3／top-5。token 代理量仍用原 embedding tokenizer 和雙換行組裝。這是重用同一批開發題的跨模型比較。
+
+重現指令從 repo 根目錄執行。首次取得六個檔案共 **143.65 s**，另於離線執行時量測載入。
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+evaluations/rag/local/.embedding-venv/bin/hf download BAAI/bge-reranker-v2-m3 \
+  --revision 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e \
+  config.json tokenizer.json tokenizer_config.json sentencepiece.bpe.model special_tokens_map.json model.safetensors
+
+d=evaluations/rag/local/week2.3
+HF_HUB_OFFLINE=1 evaluations/rag/local/.embedding-venv/bin/python -B \
+  evaluations/rag/evaluate_reranker.py --reranker bge \
+  --artifact "$d/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14" \
+  --baseline "$d/dense/baseline-20261124T165129014791Z.json" \
+  --diagnostics "$d/dense/diagnostics-20261125T160435584392Z.json" \
+  --default-result "$d/reranker/development-20261125T163120818499Z.json" \
+  --evidence-v1-result "$d/reranker/evidence-v1-20261125T173827948586Z.json" \
+  --evidence-v2-result "$d/reranker/evidence-v2-20261125T175608762090Z.json"
+```
+
+MPS smoke 通過，相關／無關 logit 為英文 3.668／−11.017、繁中 −1.851／−11.006。快取載入 **1.795 s**，smoke **1.126 s**（4 組），暖機 **3.655 s**（3 題、30 組）。正式 300 組共 72,838 個未 padding tokens，最長 592，零截斷。30 筆同步 rerank P50／P95 **624.16／1,076.44 ms**，包含 tokenization、推論、取回分數與排序，按排序樣本線性插值。未測端到端。Qwen v1 與 v2 既有階段 P50／P95 分別為 1,517.45／2,422.48 ms 與 1,628.00／2,371.71 ms，跨輪次比較為初步觀察。
+
+各品質欄為成員命中／充分方案完成。
+
+| 排名 | 整體 | 繁中 | 英文 | 總字元／每題平均 | 總代理 tokens／每題平均 |
+| --- | --- | --- | --- | ---: | ---: |
+| Dense 3 | 28/30／28/30 | 15/15／15/15 | 13/15／13/15 | 100,920／3,364.0 | 23,021／767.4 |
+| Dense 5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 150,557／5,018.6 | 34,609／1,153.6 |
+| Dense 10 | 30/30／30/30 | 15/15／15/15 | 15/15／15/15 | 271,281／9,042.7 | 62,542／2,084.7 |
+| Qwen v1 3 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 99,025／3,300.8 | 22,692／756.4 |
+| Qwen v1 5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 148,767／4,958.9 | 34,178／1,139.3 |
+| Qwen v2 3 | 29/30／28/30 | 15/15／14/15 | 14/15／14/15 | 97,243／3,241.4 | 22,335／744.5 |
+| Qwen v2 5 | 30/30／30/30 | 15/15／15/15 | 15/15／15/15 | 156,873／5,229.1 | 36,111／1,203.7 |
+| BGE 3 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 111,981／3,732.7 | 25,761／858.7 |
+| BGE 5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 167,567／5,585.6 | 38,695／1,289.8 |
+
+同 k 對照如下，其餘題目兩項均持平。
+
+- **Dense → BGE。** Top-3 的 `draft-hip-hop-shift-before-move` 兩項改善。Top-5 無改善或退步。
+- **Qwen v1 → BGE。** 兩個 k 都無改善或退步。
+- **Qwen v2 → BGE。** Top-3 的 `draft-dime-stop-versus-strobing` 充分方案改善，成員無變化。Top-5 的 `pilot-arm-wave` 兩項退步。
+
+| 必要或診斷段落 | Dense rank | Qwen v1 | Qwen v2 | BGE |
+| --- | ---: | ---: | ---: | ---: |
+| Arm Wave 影片充分段 `0003` | 6 | 6 | 5 | 6 |
+| Arm Wave 文章媒體引介 `0005` | 3 | 5 | 6 | 5 |
+| Dime Stop 定義 `0006` | 2 | 3 | 4 | 3 |
+| Strobing 定義 `0013` | 1 | 2 | 2 | 2 |
+
+BGE 相對同 k 的候選文字量都較高，例如相對 dense 代理 tokens 多約 11.90%／11.81%，相對 v1 多 13.52%／13.22%，相對 v2 多 15.34%／7.16%。本輪較快的 rerank 階段有實測支持。品質方面 BGE top-3 與 v1 持平、top-5 比 v2 少一題，保留既有預設。結果無法估計新題表現。
+
+正式指令 exit 0。獨立產物 `local/week2.3/reranker/bge-20261126T131757550106Z.json`，SHA-256 `0eb50645a7a5937884629f8ebc11680a2304b1e842e3a1265a5c7f06800043a5`，含逐題候選、原始分數、排名、計分、延遲與輸入雜湊。從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider tests/test_rag_reranker.py`，**5 passed**，一則既有棄用警告。`git diff --check` 通過。
+
+### Week 2.4 檢索決策
+
+目前 Week 2.5 CLI 採用 **dense exact top-10 → Qwen3-Reranker-0.6B（`evidence-v2`）→ top-5**。前述初始 Qwen default 實驗的保留 baseline 判斷是當時的歷史結論。最終設定使 Arm Wave 充分段由第 6 升至第 5，在固定開發集 top-5 完成 30/30，歷史 dense top-5 為 29/30。Evidence-v3 沒有增益。BGE 該輪 rerank 較快，但其 top-5 失去 Arm Wave 充分段，且平均選出 5,585.6 字元／1,289.8 代理 tokens，高於 v2 的 5,229.1／1,203.7。保留原 dense baseline 作歷史對照。計時為分輪觀察，BGE 及 evidence-v2/v3 未重測完整 retrieval 流程。
+
+「成員命中」是取回任一最小充分方案的成員，「方案完成」是取回至少一組的所有必要成員。兩者衡量固定 30 題的 retrieval 證據，新題尚未驗證。選中文字量以字元與代理 tokens 報告，OpenAI 用量另依 API 回傳記錄。生成回答正確性與引用品質需由人工另行判定。
+
+### Week 2.5 OpenAI 設定與 smoke test
+
+`.env.example` 的 key 欄留空。根目錄 Git 忽略的 `.env` 由共用 dotenv loader 載入，模型預設 `gpt-6.1-terra`。使用者已確認 在 `backend/` 執行的 `.venv/bin/python -m app.smoke_openai`的真實測試成功。Smoke 使用 Responses、reasoning effort none、256 output tokens、30 秒 timeout 與零重試。缺 key 在發送前退出，API 錯誤只顯示 HTTP 狀態與例外類型。使用者確認未附原始 smoke 數值。
+
+### Week 2.5 單題 RAG CLI
+
+- 輸入為鎖定的 `week2.2/batch-headings-v2` 154 段，批次 SHA-256 `ab88dba3eba8486c83d5615fa12cdcd99ced80264d942b9f2689f6e8516ed9d4`。使用既有 embedding artifact `cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14`，唯讀驗證 `danceflow_week2_3_dense_v1` 的 payload、向量及 metadata。CLI 讀取 corpus 與 artifact，評估題檔並未載入。
+- Query encoder 為 Qwen3-Embedding-0.6B @ `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`，CPU／float32、既有 query prompt、L2 normalization、exact cosine top-10。Qwen3-Reranker-0.6B @ `e61197ed45024b0ed8a2d74b80b4d909f1255473` 用 MPS／float32、batch size 2 和 `evidence-v2` instruction，取 top-5。兩個階段沿用 Week 2.4 設定，讓本輪驗證聚焦在 evidence context 與回答生成的串接。
+- Generation prompt 為 `week2.5-generation-v1`。Responses API 使用 `gpt-6.1-terra`，reasoning effort `none`，輸出上限 1500 tokens，timeout 60 秒，重試 0 次。Prompt 要求標示教材引用，並分開呈現練習補充。
+
+指定問題「我做 bounce 時看起來很僵硬，練習時應該注意哪些身體動作？」先執行 README 的 dry-run，再執行一次真實 RAG。兩次 sources 一致。JSON 檔在 Git 忽略的 `local/week2.5/bounce-dry-run.json` 和 `local/week2.5/bounce-live.json`，含完整來源文字、排名、設定與原始計時。
+
+| 階段 | Dry-run（ms） | 真實 RAG（ms） |
+| --- | ---: | ---: |
+| 語料與 collection 驗證 | 196.425 | 179.090 |
+| Encoder 載入與問題驗證 | 1564.141 | 333.667 |
+| Reranker 載入 | 2531.742 | 584.891 |
+| Query embedding | 406.237 | 159.390 |
+| Qdrant 查詢 | 21.041 | 15.297 |
+| Rerank | 1901.475 | 1872.677 |
+| Context 組裝 | 0.079 | 0.077 |
+| 生成與引用編號檢查 | 未執行 | 11451.505 |
+| CLI 量測總耗時（從依賴匯入後起算） | 6621.273 | 14596.789 |
+
+- API 回傳 `gpt-6.1-terra`、`completed`，無中斷原因。輸入 2,457 tokens（cache hit 0、30 分鐘 cache write 2,454），輸出 341 tokens（reasoning 0），總計 2,798。
+- 回答引用 [S1] 和 [S2]，查表均存在。逐段核對，膝蓋彎曲與臀部下沉再回升、用腳尖輔助平衡、在「and」腳尖落地，以及換邊節奏都有字幕描述。先不加手是從影片先練腿的教學順序推得。照鏡子、錄影及呼吸屬獨立練習建議。本輪只核對單題，未執行 30 題生成評估。
+- 從 `backend/` 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest -m 'not mysql'`，**148 passed、5 deselected**，一則既有 Starlette TestClient 棄用警告。新增 10 案例使用合成資料與 mocks。用同樣環境變數透過 FastAPI TestClient 請求 `GET /health` 得 200。 `actionlint` 和 `git diff --check` 通過。遠端 GitHub Actions 與 MySQL 整合測試未執行。
+
+### Week 2.5 generation 評估 pilot v1 標註草稿（歷史）
+
+- 輸入為鎖定的 `week2.2-retrieval-set-v1`（dataset SHA-256 `ac192e43f8450ffd2ce05e387aac48dcd31dffcccd5d1e236ada35f69e35f57b`）與 `week2.2/batch-headings-v2`。從原五題逐字保留 ID、題文及語言，把 generation 的最低回答要求、參考方案及 0／1／2 錨點與 retrieval 的相關性標註分開。
+- 本機草稿為 `local/week2.5/generation-pilot-v1/dataset.json` 與同目錄的 `review.md`。五題都是 `needs_review`，reviewer、reviewed_at、實際分數與 RAG 檢查結果留空。Arm Wave 的向外慢練是完整可用的回答方式，12-point 方案以已知點位或另有示範為前提。Bounce 教材供自查，個人原因仍待觀察。
+- 執行 `PYTHONPATH=. python3 -B /tmp/danceflow_validate_generation_pilot.py`，重讀草稿和鎖定 release，驗證 5 題原文一致、18 個參考方案、27 個定位（22 個 chunks、9 個來源）、45 個評分錨點及留空欄位。每個定位用既有 `locations()` 重算，核對到 clean block 或 cue。執行 `python3 -B evaluations/rag/validate_retrieval_pilot.py`，確認原 release 仍為 30 題 approved、61 筆證據、15 個來源、154 個 chunks。Release lock 無 diff，`git diff --check` 通過。
+- RAG 引用存在性、內容支持、漏引與補充誤歸屬獨立記錄。LLM-only 無教材引用時記 N/A。付費 API、回答生成、模型分數及回答比較均未執行。
+
+### Week 2.5 五題核准版與成對生成
+
+- 使用者於本次對話確認修訂，登錄時間為 2026-11-27T00:30:25+08:00。核准版本 `week2.5-generation-pilot-v1-approved.1`，dataset SHA-256 `e047e457424c69d0100028696af79a1fd16c1f13d91b4bbb77a83b7ec96e4473`，review SHA-256 `2a4c98e5adda7d6fc96c08e78894e60ea2bf1b7f832d31cdfb6a0fac81c5a90e`。本機 `local/week2.5/generation-pilot-v1/generation-pilot-v1.lock.json` 記錄兩個雜湊與原 retrieval lock 雜湊。
+- 空白或完全無關直接三項給 0。有相關內容時，Correctness 依實際技術說法判定，遺漏與含糊由完整性和實用性判定。引用支持與教材歸屬獨立，方案標示教材內容或整理出的練習安排。逐題更新雙腳 bounce、Arm Wave 外部點序、Musicality 的選擇性說法、Popping Hit 可操作檢查及 Freestyle 的概念轉動作錨點。
+- `answer.py --mode llm-only` 以 `week2.5-llm-only-v1` 只傳原題與指示。RAG 沿用原 prompt `week2.5-generation-v1`、exact dense top-10、Qwen3-Reranker-0.6B 的 `evidence-v2` 及 top-5。兩者沿用 OPENAI_MODEL、reasoning effort none、1500 output tokens、60 秒與零重試。Runner 只從鎖定資料擷取原題傳給 CLI。
+- 從 repo 根目錄執行 `PYTHONPATH=. python3 -B /tmp/danceflow_generate_pairs.py --validate-only` 驗證核准版、原五題、27 筆定位及空白評分欄位。既有 `python3 -B evaluations/rag/validate_retrieval_pilot.py` 驗證原 release 仍為 30 題、61 筆證據、154 個 chunks，原 lock 無 diff。從 backend 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest -m 'not mysql'`，151 passed、5 deselected，一則既有 Starlette 棄用警告。`git diff --check` 通過。
+- 實際按固定順序執行五題各一筆 RAG 與 LLM-only，10 筆均為 `completed` 且有非空文字，API 模型均為 `gpt-6.1-terra`。零重試、零失敗、零截斷。總用量 10,359 input、2,995 output，合計 13,354 tokens。RAG 每題有五筆來源，引用編號檢查未發現表外編號。實質支持與漏引留待人工審查。
+- `local/week2.5/generation-pairs-v1-approved.1/` 保存逐模式 JSON、run manifest 與完整 `review.md`。CLI 計時與程序 wall time 分列。未自動評分、未使用 LLM judge、未執行完整 30 題。
+- 下一步是人工審查五題回答與引用。FastAPI 問答 endpoint 與 Streamlit 介面尚未實作。此 feature branch 單獨推送不會觸發現行 workflow，這批改動的遠端 CI 尚未執行。

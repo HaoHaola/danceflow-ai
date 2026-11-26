@@ -33,17 +33,14 @@ THREADS = 4
 NORM_TOLERANCE = 1e-6
 
 
-def load_locked_inputs():
+def load_locked_corpus():
     if not __debug__:
         raise RuntimeError("Run without -O because the release validator uses assertions")
 
     documents, chunks, corpus_version = release.load_corpus()
     lock = release.read(release.LOCK)
-    questions = release.validate_release(
-        release.PILOT / "dataset.json", release.PILOT / "review.md", lock, corpus_version
-    )
-    if release.validate_questions(questions, documents, chunks) != lock["evidence_entries"]:
-        raise ValueError("Evidence count differs from the release lock")
+    if corpus_version["batch_summary_sha256"] != lock["batch_summary_sha256"]:
+        raise ValueError("Corpus batch differs from the release lock")
 
     source_root = release.CLEAN.parent
     for source_id, document in documents.items():
@@ -58,6 +55,18 @@ def load_locked_inputs():
         if transcript is not None and transcript["version"] != TRANSCRIPT_VERSION:
             raise ValueError(f"{source_id}: expected transcript v3")
     return documents, list(chunks.values()), {"release": lock, "corpus": corpus_version}
+
+
+def load_locked_inputs():
+    documents, chunks, inputs = load_locked_corpus()
+    questions = release.validate_release(
+        release.PILOT / "dataset.json", release.PILOT / "review.md",
+        inputs["release"], inputs["corpus"],
+    )
+    chunks_by_id = {chunk["chunk_id"]: chunk for chunk in chunks}
+    if release.validate_questions(questions, documents, chunks_by_id) != inputs["release"]["evidence_entries"]:
+        raise ValueError("Evidence count differs from the release lock")
+    return documents, chunks, inputs
 
 
 def verify_inputs(documents, chunks, tokenizer):

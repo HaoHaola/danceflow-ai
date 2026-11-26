@@ -20,6 +20,8 @@ jobs:
     name: API tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
     steps:
       - uses: actions/checkout@v6
         with:

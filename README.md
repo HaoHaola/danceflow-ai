@@ -14,6 +14,8 @@ reading weekly training plans. The training-plan draft endpoint is a placeholder
 | Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
 | Week 2.2 | Finalized 154 chunks, approved the 30-question retrieval set, and completed Qwen model selection and the local embedding smoke test. |
 | Week 2.3 | Embedded and ingested 154 chunks. The 30-question exact dense baseline retrieved a complete minimum evidence plan for 29 questions at top 5. |
+| Week 2.4 | Selected exact dense top-10 → Qwen3-Reranker-0.6B with `evidence-v2` → top-5 after comparing instruction variants and BGE on the same 30 development questions. |
+| Week 2.5 | Verified OpenAI connectivity and the local RAG CLI. Generated both modes for all five approved pilot questions. Human review is pending. |
 
 See the [development progress](docs/progress.md) for milestone history and the
 [roadmap](docs/development-roadmap.md) for planned capabilities.
@@ -116,19 +118,18 @@ From `backend/`, activate `.venv` and install the development dependencies befor
 
 ```sh
 python -m pytest
-python -m pytest -m "not mysql"
+PYTHON_DOTENV_DISABLED=1 python -m pytest -m "not mysql"
 ```
 
 The first command skips MySQL integration tests by default. The second selects
-the same tests as the CI API job, including the offline corpus tests. See
+the same tests as the CI API job with local dotenv loading disabled. It includes offline corpus and RAG CLI tests. See
 [MySQL integration tests](#run-mysql-integration-tests) for the isolated test
 database setup and the `RUN_MYSQL_TESTS=1` opt-in.
 
 [GitHub Actions CI](.github/workflows/ci.yml) runs on pull requests targeting
 `main`, pushes to `main`, and manual dispatch. The MySQL job uses an isolated
 MySQL 8.4 service, runs `alembic upgrade head` and `alembic check`, and checks
-the JUnit report for at least one test case and zero skips. CI is operational.
-CD and actual deployment are pending.
+the JUnit report for at least one test case and zero skips. The Week 2.4–2.5 changes were verified locally. Pushing the feature branch alone does not trigger a remote run. CD and deployment are pending.
 
 ## Create and look up a local user (DF-003)
 
@@ -411,3 +412,153 @@ The first run found a member of a minimum evidence plan for 29 of 30
 questions and retrieved a complete plan for 29 of 30. See the
 [RAG report](evaluations/rag/report.md) for language breakdown, the missed
 case, and measurement limits.
+
+For the post-baseline diagnostic on the same locked set, add `--diagnose`.
+
+```sh
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  "$rag_python" -B evaluations/rag/evaluate_dense.py --artifact "$artifact_dir" --diagnose
+```
+
+This writes a separate `diagnostics-*.json` with k=3, 5, and 10 prefix metrics,
+candidate text token counts, and the complete Arm Wave ranking. It is an
+exploratory analysis of the baseline questions.
+
+### Run the Qwen reranker development evaluation
+
+Start Qdrant and keep the locked document vectors in the baseline collection.
+Use the existing RAG virtual environment. Download the pinned model and
+tokenizer into the ignored local cache once.
+
+```sh
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+evaluations/rag/local/.embedding-venv/bin/hf download \
+  Qwen/Qwen3-Reranker-0.6B --revision e61197ed45024b0ed8a2d74b80b4d909f1255473 \
+  config.json tokenizer.json tokenizer_config.json chat_template.jinja model.safetensors
+```
+
+From the repo root, point the runner at the locked embedding artifact and the
+two original dense output files.
+
+```sh
+dense_dir=evaluations/rag/local/week2.3/dense
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+HF_HUB_OFFLINE=1 evaluations/rag/local/.embedding-venv/bin/python -B \
+  evaluations/rag/evaluate_reranker.py --artifact "$artifact_dir" \
+  --baseline "$dense_dir/baseline-20261124T165129014791Z.json" \
+  --diagnostics "$dense_dir/diagnostics-20261125T160435584392Z.json"
+```
+
+The runner defaults to Apple MPS with float32. Use `--smoke-only` for the
+synthetic bilingual smoke check, or `--device cpu` for an explicit CPU run.
+It verifies the saved rankings against live exact top-10 queries, scores
+each candidate pool once per timed query, and applies the evidence metrics
+to the first round only. The timestamped JSON in the Git-ignored
+`evaluations/rag/local/week2.3/reranker/` directory contains per-query scores,
+timings, and selected text volumes. This evaluation reuses the baseline
+questions for development.
+
+#### Compare the evidence-v1 instruction
+
+Use the same cached model, artifact, and dense output paths as above. Supply
+the original default reranker result. This mode uses the verified saved
+top-10 candidates and measures only the rerank stage.
+
+```sh
+default_result=evaluations/rag/local/week2.3/reranker/development-20261125T163120818499Z.json
+HF_HUB_OFFLINE=1 evaluations/rag/local/.embedding-venv/bin/python -B \
+  evaluations/rag/evaluate_reranker.py --instruction evidence-v1 \
+  --artifact "$artifact_dir" --baseline "$dense_dir/baseline-20261124T165129014791Z.json" \
+  --diagnostics "$dense_dir/diagnostics-20261125T160435584392Z.json" \
+  --default-result "$default_result"
+```
+
+The timestamped `evidence-v1-*.json` keeps all seven variants, per-query
+ranking and changes, and timing samples. The instruction was designed after
+inspecting baseline failures, so this comparison uses the development set.
+
+### Week 2.4 retrieval decision
+
+The CLI uses **exact dense top-10 → Qwen3-Reranker-0.6B with `evidence-v2` → top-5**.
+The historical exact dense top-5 baseline remains reproducible above. Member hit
+means retrieving any member of a minimum sufficient evidence set. Completion
+means retrieving all members of at least one such set. Partial evidence is
+tracked separately.
+
+| Top-5 output | Member hit / completion | Rerank P50 / P95, ms | Selected characters / proxy tokens per question |
+| --- | --- | --- | --- |
+| Historical dense | 29/30 / 29/30 | — | 5,018.6 / 1,153.6 |
+| Qwen default instruction | 29/30 / 29/30 | 1,380.38 / 2,293.21 | 4,961.7 / 1,143.7 |
+| Qwen evidence-v1 | 29/30 / 29/30 | 1,517.45 / 2,422.48 | 4,958.9 / 1,139.3 |
+| Qwen evidence-v2 | 30/30 / 30/30 | 1,628.00 / 2,371.71 | 5,229.1 / 1,203.7 |
+| BGE v2-m3 | 29/30 / 29/30 | 624.16 / 1,076.44 | 5,585.6 / 1,289.8 |
+
+Evidence-v2 moved the Arm Wave evidence from rank 6 to 5. Evidence-v3 tied it
+at top-5 with no observed retrieval gain. BGE reranked faster in its measured
+run, selected more text, and missed that Arm Wave evidence at top-5. These are
+development-set retrieval results. The latency figures come from separate runs,
+and proxy tokens measure selected text volume. Generation quality and actual API
+usage are measured separately. [Experiment details](evaluations/rag/report.md)
+
+### Week 2.5 OpenAI smoke test
+
+Set `OPENAI_API_KEY` in the Git-ignored repository-root `.env` and use
+`OPENAI_MODEL=gpt-6.1-terra`. The shared dotenv loader gives an existing
+environment variable priority over the file. From `backend/` with dependencies
+installed, run `.venv/bin/python -m app.smoke_openai`. It uses Responses,
+reasoning effort `none`, 256 output tokens, a 30-second timeout, and zero retries.
+It prints the model, answer, usage, and elapsed time. A missing key exits before
+a request. API errors expose the HTTP status and exception type. The user
+confirmed the live smoke test succeeded.
+
+### Week 2.5 single-question RAG
+
+Run from the repository root with the existing Qdrant collection, locked
+embedding artifact, and cached Qwen models. Install the backend requirements
+into the existing embedding environment to share the OpenAI SDK and dotenv.
+
+```sh
+rag_python=evaluations/rag/local/.embedding-venv/bin/python
+"$rag_python" -m pip install -r backend/requirements.txt
+docker compose start qdrant
+export PYTHONPATH=backend
+export HF_HUB_CACHE=evaluations/rag/local/hf-cache
+export HF_HUB_OFFLINE=1
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+question='我做 bounce 時看起來很僵硬，練習時應該注意哪些身體動作？'
+"$rag_python" -B -m evaluations.rag.answer --artifact "$artifact_dir" --question "$question" --dry-run
+```
+
+The dry run prints the top-five context and source lookup after exact dense
+top-10 and Qwen reranking with `evidence-v2`. Use `--device cpu` when MPS is
+unavailable. For one live run, set `OPENAI_API_KEY` in the repository-root
+`.env` and repeat the last command without `--dry-run`. The JSON output
+includes the answer status, model, usage, and stage timings. An incomplete
+answer or an unknown source ID produces a nonzero exit status. Citation ID
+validation checks membership in the lookup table. Claim support requires
+reviewing each claim against the cited text.
+
+### Week 2.5 five-question generation pilot
+
+The user approved `week2.5-generation-pilot-v1-approved.1`. All ten requests
+completed, one RAG and one LLM-only run per question, using `gpt-6.1-terra`.
+Both modes use reasoning effort `none`, up to 1,500 output tokens, a 60-second
+timeout, and zero retries. LLM-only sends the original question and response
+instructions without retrieval or search tools. It can run from the repo root
+with `PYTHONPATH=backend backend/.venv/bin/python -m evaluations.rag.answer
+--mode llm-only --question 'Your question'` on one shell line.
+
+The CLI reports API status and error type without exposing headers or
+credentials. An empty or truncated answer returns a nonzero exit status. RAG
+keeps source IDs, full chunk text, and available heading or time metadata.
+The number check verifies membership in the source table. Claim support requires
+human review. Offline validation yielded 151 passed and 5 MySQL tests deselected.
+
+Local review files under `evaluations/rag/local/week2.5/`
+
+- `generation-pilot-v1/review.md` and `generation-pilot-v1.lock.json` for the approved rubric and hashes.
+- `generation-pairs-v1-approved.1/review.md` for all ten answers, sources and timings, plus one JSON per mode and question in the same folder.
+
+Next is human review of the five answer pairs. Scoring and the 30-question
+generation run are pending. The FastAPI Q&A endpoint and Streamlit interface
+are planned. See the [RAG report](evaluations/rag/report.md#week-25-五題核准版與成對生成).

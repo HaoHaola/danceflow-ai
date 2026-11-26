@@ -3,5 +3,6 @@ pydantic[email]==2.12.5
 uvicorn==0.44.0
 SQLAlchemy>=2.0,<3
 PyMySQL[rsa]>=1.1,<2
-python-dotenv>=1,<2
+python-dotenv>=1.2,<2
 alembic>=1.13,<2
+openai>=2,<3

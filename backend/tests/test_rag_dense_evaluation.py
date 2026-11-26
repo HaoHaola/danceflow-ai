@@ -60,3 +60,35 @@ def test_query_preflight_counts_full_prompt_without_truncation(evaluation):
 
     with pytest.raises(ValueError, match="exceed the 512-token limit"):
         evaluation.check_query_tokens(tokenizer, [("fixture", "query")])
+
+
+def test_k_prefixes_preserve_order_and_count_candidate_tokens(evaluation):
+    ids = ["a", "a2", "partial", "other", "b", "x", "y", "z", "u", "v"]
+    question = {
+        "minimum_sufficient": {"evaluation_chunk_sets": [["a", "b"], ["a2", "b"]]},
+        "supplemental_group_ids": ["extra"],
+        "evidence_groups": [
+            {"group_id": "extra", "chunk_support": {"partial": "partial"}},
+        ],
+    }
+    hits = [{"chunk_id": cid, "rank": i} for i, cid in enumerate(ids, 1)]
+    results = evaluation.score_prefixes(question, hits, dict(zip(ids, range(1, 11))))
+    assert [results[k]["complete_plan"] for k in ("3", "5", "10")] == [False, True, True]
+    assert all(result["member_hit"] for result in results.values())
+    assert [results[k]["candidate_tokens"] for k in ("3", "5", "10")] == [6, 15, 55]
+    assert results["3"]["missing_by_plan"] == [["b"], ["b"]]
+
+
+def test_completion_rank_uses_first_complete_alternative(evaluation):
+    question = {"minimum_sufficient": {"evaluation_chunk_sets": [["a", "b"], ["c", "d"]]}}
+    hits = [
+        {"chunk_id": cid, "rank": rank, "score": 1 / rank}
+        for cid, rank in [("a", 1), ("b", 11), ("c", 4), ("d", 7)]
+    ]
+    result = evaluation.completion_ranks(question, hits)
+    assert result["minimum_completion_k"] == 7
+    first, second = result["plans"]
+    assert first["completion_rank"] == 11
+    assert second["completion_rank"] == 7
+    assert second["missing_by_k"] == {"3": ["c", "d"], "5": ["d"], "10": []}
+    assert second["required"] == hits[2:]

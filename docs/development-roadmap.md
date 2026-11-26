@@ -1,10 +1,10 @@
 # DanceFlow AI — Development Roadmap
 
 > **Project:** AI-powered Street Dance Coaching & Crew Management Platform  
-> **Version:** 1.0 · Updated 2026-11-18  
+> **Version:** 1.0 · Updated 2026-11-27\
 > **Duration:** 8 weeks for a demonstrable MVP; advanced infrastructure and multimodal coaching are subsequent extensions  
 > **Learning style:** Project-based learning + IBM RAG and Agentic AI coursework + supervised Codex collaboration  
-> **Status:** Planning / early implementation
+> **Status:** Backend foundation and local RAG CLI implemented
 
 ## 1. Goals and scope
 
@@ -138,6 +138,10 @@ Use Pydantic request/response models, predictable error responses and OpenAPI/Sw
 **Week 2.2 checkpoint (complete):** Finalize the 154-chunk local corpus and the 30-question approved evaluation set. Select Qwen3-Embedding-0.6B and verify the offline embedding smoke test.
 
 **Week 2.3 checkpoint (complete locally):** Offline embedding and persistent Qdrant ingestion are verified for the locked 154-chunk batch. The exact dense baseline retrieved a complete minimum evidence plan at top 5 for 29 of 30 approved questions. The GitHub Actions Qdrant job has been verified locally and awaits a remote run.
+
+**Week 2.4 checkpoint (complete locally):** Compared Qwen default and evidence-v1/v2/v3 instructions with BGE. The current CLI uses exact dense top-10 → Qwen3-Reranker-0.6B with evidence-v2 → top-5. On the same 30 development questions, complete evidence plans rose from 29/30 for historical dense top-5 to 30/30. BGE was faster at reranking in its measured run and completed 29/30 at top-5. Fresh-question retrieval evaluation remains pending. See the [retrieval decision](../evaluations/rag/report.md#week-24-檢索決策).
+
+**Week 2.5 checkpoint (generation complete locally):** OpenAI smoke test confirmed. The single-question CLI supports RAG with a source table, dry-run, and an LLM-only mode. The user approved `week2.5-generation-pilot-v1-approved.1`. Five paired runs produced ten completed responses, recorded locally with token usage and timings. Next is human review of the five answer pairs. Retrieval completion measures retrieved evidence coverage. Answer correctness, completeness, actionability, and citation support remain to be reviewed. The 30-question generation run, FastAPI Q&A endpoint, and Streamlit interface are pending.
 
 ### Week 3 — Personalized Coach, LangGraph and training history
 
