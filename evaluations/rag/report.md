@@ -490,3 +490,107 @@ evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/chunk_pilot.
 - 從 `backend/` 執行 `.venv/bin/python -B -m pytest -m 'not mysql'`，**112 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。CI 的 API job 在 `backend/` 執行 `python -m pytest -m "not mysql"`，沒有 paths filter 或限制 RAG 模組的收集設定。RAG prep、chunking 和評估集驗證的測試都位於 `backend/tests/test_rag_*.py`。CI 使用自製 fixtures 與替代計數器，固定 Qwen tokenizer 重算及正式標註驗證在本機執行。
 
 Week 2.2 結束於 chunking 與評估集完成。Week 2.3 待辦依序為批次 embedding、Qdrant ingestion 和 dense retrieval baseline。
+
+## Week 2.3 — 批次文件 embedding
+
+2026-11-25（Asia/Taipei）完成第一階段。輸入沿用 transcript v3、`batch-headings-v2` 的 154 個既有 chunks，以及 `retrieval-set-v1.lock.json` 鎖定的 30 題 approved 評估集和 61 筆證據。CLI 在推論前核對 release lock、clean／chunk 檔雜湊、可重算的 chunk IDs、原始快照雜湊、來源回溯與正文覆蓋。用固定 tokenizer 重算每筆 `embedding_text` 的完整 token 數，含前綴及 special tokens，停用 truncation。實測最大完整輸入 512 tokens，最大 overlap 64 tokens。
+
+- 文件採 `prompt=""`，直接編碼既有 `embedding_text`。使用 Qwen/Qwen3-Embedding-0.6B revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`，CPU／float32、4 個 PyTorch threads、batch size 8、1024 維、L2 normalization，norm 絕對容差 `1e-6`。沿用 Apple M4 Pro／24 GiB 與隔離 venv。此次 manifest 記錄 macOS 26.6.2 arm64、Python 3.13.3、torch 2.8.0、transformers 4.57.6、sentence-transformers 5.1.2、huggingface-hub 0.36.2、tokenizers 0.22.2、safetensors 0.8.0、NumPy 2.5.5。
+- 產物存入 Git 忽略的 `local/week2.3/embeddings/<fingerprint>/`。Manifest 保存鎖定輸入、逐來源雜湊和 chunking 設定、編碼環境及依向量列順序排列的 chunk IDs。`vectors.json` 保存由 float32 輸出轉成 JSON 數字的矩陣。Fingerprint 涵蓋輸入、設定、環境及列順序。同一 fingerprint 重跑時，CLI 重新驗證輸入、manifest、向量檔 SHA-256 與向量規格後才重用。檢查失敗會報錯。
+- 正式輸出 `154 × 1024`，154 個唯一 ID 與鎖定 chunk 順序逐筆相符，向量分量均有限，重新讀取產物後最大 L2 norm 絕對偏差約 `1.81e-7`。向量檔 SHA-256 為 `cd222389588ea66c7415bb36c45f6ec4f9c7b157af2fc07c57bbe7889258a02b`。模型載入及文件編碼合計 **17.310 s**，含 encode 內的 tokenizer、推論與正規化，另行執行的 token preflight、產物寫入與驗證時間未計入。這是單次批次測量。
+
+從 repo 根目錄執行下列指令兩次，首次 exit 0 並輸出 `Encoded`，第二次 exit 0 並輸出 `Reused`，向量雜湊相同。
+
+```sh
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/embed_batch.py
+```
+
+從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，最終 **118 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增 6 個離線案例，覆蓋完整輸入超長、向量筆數／維度／有限值／L2 norm 驗證，以及 ID 映射、重用與產物毀損。測試使用 synthetic fixtures 和固定向量。
+
+Qdrant ingestion、持久化及 dense retrieval 品質與 latency 評估尚未執行。下一階段的部署決策為在既有 `compose.yaml` 加入固定官方 image 的 `qdrant` service 和 `qdrant_data` named volume，沿用 `.env`／`.env.example` 的設定方式。現行 GitHub Actions MySQL job 使用原生 `services.mysql`，本機 MySQL 測試的 Compose 啟動指令也明確指定 `mysql`。整合後再驗證 Compose 的服務選擇與操作指令。
+
+### Week 2.3 — Qdrant 選型、部署與 ingestion
+
+官方資料查核日期為 2026-11-25（Asia/Taipei）。本輪以單機自管、與現有 MySQL 並行、未來自管 cluster 的路徑及維運工作作為決策依據。跨資料庫速度、成本與檢索品質 benchmark 未執行。
+
+| 方案 | 本案取捨 | 官方來源 |
+| --- | --- | --- |
+| FAISS | 提供向量搜尋 library。分散式服務與資料管理需要另建或另外整合。 | [FAISS 多節點專案](https://github.com/facebookresearch/distributed-faiss) |
+| pgvector | 以 PostgreSQL extension 提供向量功能，採用後會在現有 MySQL 外再引入 PostgreSQL。 | [pgvector repo](https://github.com/pgvector/pgvector) |
+| Pinecone | Managed service 由供應商負責資料庫部署與維運，與本輪練習目標不同。 | [Pinecone Database](https://docs.pinecone.io/guides/get-started/overview) |
+| Chroma | 適合快速建立 RAG。官方保存 distributed 架構與歷史 BYOC 說明，該文章記載 BYOC 已停止提供。現行可自行部署及維運的分散式路徑需另行驗證。 | [Distributed Chroma](https://www.trychroma.com/engineering/distributed-chroma-byoc) |
+| Milvus | 支援多種索引。Lite 為嵌入式，Standalone 是單機服務，Distributed 是多節點部署。若本案走向多節點自管，預期要處理較多部署依賴、資源配置與遷移工作。 | [部署選項](https://milvus.io/docs/install-overview.md) · [索引選項](https://milvus.io/docs/index-explained.md) |
+| Qdrant | 單機 Docker 適合目前 MVP 與維運練習，未來可採自管 cluster。備份還原、shard 規劃與擴充仍須另行設計與驗證。 | [Docker 安裝](https://qdrant.tech/documentation/operations/installation/) · [自管 cluster](https://qdrant.tech/documentation/scaling/distributed_deployment/) · [Snapshots](https://qdrant.tech/documentation/snapshots/) |
+
+- 官方 `qdrant/qdrant:v1.16.3` 在現有 `compose.yaml` 啟動，僅在 `127.0.0.1:6333` 提供 REST，`qdrant_data` 掛載到 `/qdrant/storage`。以 `docker buildx imagetools inspect qdrant/qdrant:v1.16.3` 確認官方 index 含 arm64，再由 `docker image inspect` 確認本機使用 `linux/arm64`。REST 回報 server 1.16.3，隔離 RAG venv 使用 `qdrant-client==1.16.2`。驗證兩版支援建立及讀回 collection metadata。 [Server release](https://github.com/qdrant/qdrant/releases/tag/v1.16.3) · [Client release](https://github.com/qdrant/qdrant-client/releases/tag/v1.16.2)
+- 正式 collection 為 `danceflow_week2_3_dense_v1`，單一 1024 維 float32 cosine 向量。Collection metadata 保存 model、revision、release、批次摘要雜湊、artifact fingerprint、向量雜湊及 payload schema 版本。Payload 沿用 chunk 的正文、URL、來源版本、小節、行號、cue 與時間等現有欄位。Manifest 的第 i 個 chunk ID 對應第 i 列向量，UUIDv5 將該 ID 映射成 point ID，payload 保留原 ID。
+- 讀取既有產物 `cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14`，沿用第一階段向量 SHA-256 `cd222389588ea66c7415bb36c45f6ec4f9c7b157af2fc07c57bbe7889258a02b`。在連線前驗證 lock、manifest、向量雜湊、列順序與數值。Collection 設定和 metadata 須相容才執行 `upsert(wait=True)`。
+
+從 repo 根目錄執行 Compose 驗證。單獨啟動時只有 Qdrant 在運作。同時啟動時兩個服務均通過 `--wait`。MySQL 啟動時 Compose 更新了容器，掛載沿用 `danceflow-ai_mysql_data`。只重啟 Qdrant 前後，MySQL container ID 及啟動時間一致。
+
+```sh
+docker compose config --quiet
+docker compose up -d --no-deps qdrant
+docker compose up -d --wait --wait-timeout 90 mysql qdrant
+docker compose restart --no-deps qdrant
+curl -fsS --max-time 2 --retry 15 --retry-all-errors --retry-delay 1 http://127.0.0.1:6333/readyz
+```
+
+執行匯入兩次，重啟 Qdrant 後執行唯讀驗證。三次均 exit 0，以 exact count 與完整 scroll 核對同一組 **154** 個 UUID、向量及 payload，包含原 chunk ID 與來源回溯欄位。Stored vectors 以逐分量絕對容差 `1e-6` 比對，容許 cosine 寫入時的浮點正規化誤差。
+
+```sh
+rag_python=evaluations/rag/local/.embedding-venv/bin/python
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+"$rag_python" -B evaluations/rag/ingest_qdrant.py --artifact "$artifact_dir"
+"$rag_python" -B evaluations/rag/ingest_qdrant.py --artifact "$artifact_dir" --verify-only
+"$rag_python" -B -m pytest -p no:cacheprovider evaluations/rag/integration/test_qdrant_ingestion.py
+```
+
+- 真實 Qdrant integration **6 passed、0 skipped**，只使用有獨立名稱的 synthetic test collections；測後列出 collection，只剩正式 collection。測試驗證重跑、payload、錯誤維度與 metric、模型 revision、資料 release 及缺少 metadata 均在寫入前被拒絕。
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**120 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增離線測試涵蓋 artifact 毀損、順序與模型 revision。API CI 從 `backend/` 收集離線測試。MySQL CI 使用 GitHub Actions 的 `services.mysql`，本機 MySQL 測試仍以指定 `mysql` 的 Compose 指令啟動。
+- 此次持久化驗收範圍是單機服務重啟。備份還原、分散式部署、跨 DB benchmark、dense retrieval 品質與 latency 評估尚未執行。
+
+#### Qdrant integration CI
+
+在 CI 新增獨立 job，沿用現有 push、pull request 與手動觸發條件。GitHub Actions 為該 job 啟動暫時的 Qdrant 1.16.3 service。Runner 從 repo 根目錄安裝固定 client 與 pytest，等 `/readyz` 後執行 `python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"`。JUnit 驗證要求至少有一個測例且零 skip。仍使用合成向量，API 和 MySQL job 沿用原測試方式。
+
+本機 `actionlint .github/workflows/ci.yml` 通過。用本機 Qdrant 1.16.3 執行 workflow 的就緒檢查、pytest 與 JUnit 驗證，結果為 **6 passed、0 skipped**。GitHub Actions runner 尚未執行此變更。
+
+### Week 2.3 — Dense retrieval baseline
+
+2026-11-25（Asia/Taipei）執行正式 baseline。沿用 `week2.2-retrieval-set-v1`（30 題 approved，61 筆證據）、154 筆文件向量及 `danceflow_week2_3_dense_v1`。CLI 在查詢前核對 lock、artifact 雜湊、模型 revision、collection metadata、全量 UUID、payload 和向量。執行唯讀查詢，文件向量沿用第一階段產物。
+
+- Qwen/Qwen3-Embedding-0.6B revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。在 Apple M4 Pro 使用 CPU／float32、4 threads、1024 維及 L2 normalization。查詢沿用 smoke test 的完整 `QUERY_PROMPT`，含 instruction 與 special tokens，計數時停用 truncation。30 題最大 54 tokens，低於 512 上限，暖機三筆的輸入分別為 34、38、37 tokens。
+- Qdrant 1.16.3、client 1.16.2，REST `query_points`、`exact=True`、cosine、top-5。每題與本機文件向量的 dot product 比對。分數絕對誤差門檻為 `1e-6`，排名差距在相同容差內可互換，包括第 5／6 名。30 題通過，實測最大分數誤差約 `1.01e-7`，30 題順序一致，零題在第 5／6 名落入容差。
+- 評分以 Qdrant 實際前五名為準。只要命中任一最小充分方案的成員就計入「充分方案成員命中」。至少完整涵蓋一組才計入「最小充分方案完成」。逐題二元計分，各方案外層 OR、內層 AND，沿用 overlap 等價替代。Partial 和 supplemental 只用於診斷，充分方案完成衡量的是檢索到的證據。
+
+| 分組 | 充分方案成員命中@5 | 最小充分方案完成@5 |
+| --- | --- | --- |
+| 整體 | 29/30（96.7%） | 29/30（96.7%） |
+| 繁中 | 15/15（100%） | 15/15（100%） |
+| 英文 | 14/15（93.3%） | 14/15（93.3%） |
+
+唯一未完成題為英文 `pilot-arm-wave`。前五名中 3 筆是已標註 partial，包括同影片的前置段和兩段文章 drill。唯一最小充分方案的影片段（ID 尾碼 `0003`）未進前五。觀察到近主題的動作拆解及練習提示佔據前五，核准的完整動作步驟未被取回。命中多段 AND 方案成員但缺其他必要段落的題數為 0，完全沒有命中任何已標註證據的題數為 0。此次兩項指標恰好同值，仍各自計分。
+
+固定 3 次暖機後，依資料集順序串行測量 30 題各一次，暖機不計入。P50／P95 在排序後按零起算索引 `(n - 1) × p` 線性插值。
+
+| Latency 階段 | n | P50 (ms) | P95 (ms) |
+| --- | ---: | ---: | ---: |
+| Query embedding，含 encode 中的 tokenization、推論與正規化 | 30 | 73.15 | 88.90 |
+| Qdrant client 往返，含 REST 請求與回應解析 | 30 | 7.66 | 11.76 |
+| 端到端，從 query 編碼到建好 top-5 結果 | 30 | 82.73 | 96.99 |
+
+模型載入 1.488 s；語料、產物與 collection 驗證 0.195 s；全題 token preflight 0.004 s；逐題結果驗證、dot product 對照與計分合計 0.174 s，均另列。此次是 154 筆、單機 exact、無並行的 warm run，P95 對少量高延遲樣本敏感。繁中與英文各 15 題，語言分組差距只有一題；這次結果的品質結論限於已核准的題目與證據。
+
+從 repo 根目錄執行，exit 0。產物為 Git 忽略的 `local/week2.3/dense/baseline-20261124T165129014791Z.json`（檔名為 UTC），含每題 ID、排名、score、來源 payload、計分與延遲。每次執行寫入新的時間戳檔案。
+
+```sh
+artifact_dir=evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/evaluate_dense.py --artifact "$artifact_dir"
+```
+
+- 從 `backend/` 執行 `.venv/bin/python -B -m pytest -p no:cacheprovider -m 'not mysql'`，**131 passed、5 deselected**，含一則既有 Starlette TestClient 棄用警告。新增 11 個離線案例涵蓋 OR／AND、overlap 替代、partial、near ties、排名錯誤及 query token preflight。真實 Qdrant 依既有 CI 步驟執行 `python -m pytest evaluations/rag/integration/test_qdrant_ingestion.py --junitxml="$report"`，**7 passed、0 skipped**，新增案例確認固定向量、精確排名及 payload。Junit 檢查通過，GitHub Actions 遠端結果待實際執行後補記。
+
+下一個獨立比較可先固定模型及標註，量測該題充分段落的完整排名，再比較 `k=5` 與 `k=10` 的方案完成率及額外上下文成本。原始 top-5 baseline 保留。

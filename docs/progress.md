@@ -92,4 +92,20 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 - **目前採用 `batch-headings-v2` 的 154 個 chunks**。舊版 179 段的本機批次已刪除，實驗結果仍見 RAG 實驗紀錄。
 - **Week 2.2 已完成**。Retrieval 評估集固定為 `week2.2-retrieval-set-v1`，共 **30 題（繁中 15、英文 15）與 61 筆證據**，全部於 2026-11-24 獲使用者確認並標為 `approved`。Q1 下拍時機和 Q2 的兩段 12-point 證據維持 `partial`。
 - 本機資料集與預覽位於 `evaluations/rag/local/week2.2/retrieval-pilot-v1/`。Git 追蹤 `evaluations/rag/retrieval-set-v1.lock.json`，記錄版本及 SHA-256；原文摘錄留在本機。完整標註驗證與固定 Qwen tokenizer 的 154 段計數驗證均通過。[RAG 實驗紀錄](../evaluations/rag/report.md#week-22-收尾與版本鎖定)
-- **Week 2.3 待辦**。依序執行批次 embedding、匯入 Qdrant、跑 dense retrieval baseline。
+- **Week 2.3 第一階段已驗收**。用鎖定批次離線產出 154 筆 1024 維文件向量，核對 chunk ID 映射、512-token 輸入上限、64-token overlap 預算、有限數值與 L2 norm。重跑通過產物驗證並重用向量。
+- **Week 2.3 第二階段已驗收**。既有 Compose 新增 Qdrant 1.16.3。以固定 client 1.16.2 匯入既有向量，首次、重跑與單獨重啟 Qdrant 後均通過 154 筆 exact count、UUID、向量及來源 payload 驗證。真實 Qdrant synthetic suite 6 passed，非 MySQL suite 120 passed。
+- **Week 2.3 第三階段已驗收**。30 題 exact top-5 全數通過本機 dot product 對照。充分方案成員命中與最小充分方案完成均為 29/30，繁中 15/15、英文 14/15。唯一未完成題只命中 partial。離線 suite 131 passed，真實 Qdrant suite 7 passed、零 skip。Qdrant CI workflow 步驟已本機驗證，GitHub Actions 實際執行結果待補。
+
+### Week 2.3 分支交接
+
+- 將已在本機驗收的三階段交付與 Qdrant CI job 整理至 `feature/week2.3-dense-baseline`，供後續審查。現行 workflow 只在 push 到 `main`、以 `main` 為目標的 PR，或手動觸發時執行。單獨推送此 feature branch 不會觸發 CI，遠端測試結果待實際執行後補記。
+- **下次待辦**。先查 `pilot-arm-wave` 的充分證據段在既有 exact 檢索下的排名，再用同一版本的向量與標註比較 `k=5`、`k=10` 的最小充分方案完成率及上下文成本。另存比較結果，保留本輪 top-5 baseline。
+
+本輪修改的檔案如下。
+
+| 範圍 | 檔案 |
+| --- | --- |
+| 批次 embedding | `evaluations/rag/embed_batch.py`、`backend/tests/test_rag_embed_batch.py` |
+| Qdrant 部署、匯入與 CI | `compose.yaml`、`evaluations/rag/requirements-qdrant.txt`、`evaluations/rag/ingest_qdrant.py`、`backend/tests/test_rag_qdrant_artifact.py`、`.github/workflows/ci.yml` |
+| Dense retrieval 與測試 | `evaluations/rag/evaluate_dense.py`、`backend/tests/test_rag_dense_evaluation.py`、`evaluations/rag/integration/test_qdrant_ingestion.py`（亦涵蓋匯入） |
+| 文件與實驗記錄 | `README.md`、`docs/progress.md`、`docs/development-roadmap.md`、`evaluations/rag/report.md` |

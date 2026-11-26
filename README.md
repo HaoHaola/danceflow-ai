@@ -13,7 +13,7 @@ reading weekly training plans. The training-plan draft endpoint is a placeholder
 | DF-005.1 | Shared MySQL fixtures and a single MySQL integration job. The API job runs all tests without the `mysql` marker, including offline corpus tests. |
 | Week 2.1 | Collected and cleaned 10 STEEZY articles and English automatic captions from 5 Ceech lessons. All 15 local outputs passed automated validation. |
 | Week 2.2 | Finalized 154 chunks, approved the 30-question retrieval set, and completed Qwen model selection and the local embedding smoke test. |
-| Week 2.3 | Pending. Batch embedding, Qdrant ingestion, and a dense retrieval baseline. |
+| Week 2.3 | Embedded and ingested 154 chunks. The 30-question exact dense baseline retrieved a complete minimum evidence plan for 29 questions at top 5. |
 
 See the [development progress](docs/progress.md) for milestone history and the
 [roadmap](docs/development-roadmap.md) for planned capabilities.
@@ -301,5 +301,113 @@ unit tests using synthetic fixtures and a substitute token counter. The
 cached Qwen tokenizer check and the approved dataset validation run locally.
 See the [RAG report](evaluations/rag/report.md) for the locked versions and checks.
 
-Week 2.3 will embed the 154 chunks, ingest them into Qdrant, and run the dense
-retrieval baseline. All three steps are pending.
+### Run batch document embedding
+
+From the repository root, use the cached model and the locked local inputs
+described above.
+
+```sh
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  evaluations/rag/local/.embedding-venv/bin/python -B evaluations/rag/embed_batch.py
+```
+
+The command verifies the release lock, source snapshots, chunk IDs, and full
+token counts before encoding. It writes `vectors.json` and `manifest.json`
+under `evaluations/rag/local/week2.3/embeddings/<fingerprint>/`. Each row of the
+vector matrix maps to the same index in the manifest's `chunk_ids`. A repeat
+run verifies and reuses the artifact for the same inputs and settings.
+
+The local run verified 154 normalized float32 vectors with 1024 dimensions.
+
+### Run Qdrant locally and import the document vectors
+
+Run from the repository root with the existing local `.env` configured as in
+[the MySQL setup](#run-mysql-locally-df-002). Compose resolves the required
+MySQL variables even when starting Qdrant by itself. Qdrant uses REST at
+`127.0.0.1:6333` and stores its data in the `qdrant_data` named volume.
+
+```sh
+docker compose config --quiet
+docker compose up -d --no-deps qdrant
+curl -fsS --retry 15 --retry-all-errors --retry-delay 1 http://127.0.0.1:6333/readyz
+```
+
+To start both services, or to restart Qdrant alone, use the respective command.
+
+```sh
+docker compose up -d --wait --wait-timeout 90 mysql qdrant
+docker compose restart --no-deps qdrant
+```
+
+Install the pinned client in the existing RAG environment. Set
+`artifact_dir` to the exact path printed by the embedding CLI for the locked
+batch.
+
+```sh
+rag_python=evaluations/rag/local/.embedding-venv/bin/python
+"$rag_python" -m pip install -r evaluations/rag/requirements-qdrant.txt
+artifact_dir="evaluations/rag/local/week2.3/embeddings/<fingerprint>"
+"$rag_python" -B evaluations/rag/ingest_qdrant.py --artifact "$artifact_dir"
+```
+
+The import checks the artifact, collection version, and vector settings before
+upsert. It then verifies the exact count and compares every UUID, payload and
+vector. Run the same command to reimport, or add `--verify-only` after Qdrant is
+ready following a restart to check the stored collection without upserting.
+
+To trace the first row, run this read-only example with the same variables.
+It prints the original chunk ID, Qdrant UUID, and source URL.
+
+```sh
+"$rag_python" -B - "$artifact_dir" <<'PY'
+import json
+import sys
+from contextlib import closing
+from pathlib import Path
+from qdrant_client import QdrantClient
+from evaluations.rag.ingest_qdrant import COLLECTION, URL, point_id
+
+manifest = json.loads((Path(sys.argv[1]) / "manifest.json").read_bytes())
+chunk_id = manifest["chunk_ids"][0]
+with closing(QdrantClient(url=URL)) as client:
+    row, = client.retrieve(COLLECTION, ids=[point_id(chunk_id)], with_payload=True)
+assert row.payload["chunk_id"] == chunk_id
+print(chunk_id, row.id, row.payload["source_url"])
+PY
+```
+
+The Qdrant integration tests use temporary synthetic collections on the
+running localhost server. Run them explicitly from the repository root.
+
+```sh
+"$rag_python" -m pip install 'pytest>=8.3,<10'
+"$rag_python" -B -m pytest -p no:cacheprovider evaluations/rag/integration/test_qdrant_ingestion.py
+```
+
+The API CI job collects offline tests from `backend/`. A separate Qdrant CI job
+starts Qdrant 1.16.3 and runs the synthetic integration suite from the repository
+root. It checks the JUnit report for at least one test case and zero skips.
+The Qdrant job requires only the pinned client and pytest, and includes a
+fixed-vector exact query test. The workflow steps passed locally. The
+GitHub Actions run is pending.
+
+### Run the exact dense retrieval baseline
+
+With Qdrant ready and the locked document vectors already ingested, run from
+the repository root with the same `artifact_dir` and `rag_python` as above.
+
+```sh
+HF_HUB_CACHE=evaluations/rag/local/hf-cache HF_HUB_OFFLINE=1 \
+  "$rag_python" -B evaluations/rag/evaluate_dense.py --artifact "$artifact_dir"
+```
+
+The CLI checks the locked inputs and stored collection, encodes the approved
+queries using the existing instruction, and checks Qdrant exact top-5 results
+against local dot products. Each run writes a new timestamped JSON file under
+the Git-ignored `evaluations/rag/local/week2.3/dense/` with per-question results,
+source pointers, and latency.
+
+The first run found a member of a minimum evidence plan for 29 of 30
+questions and retrieved a complete plan for 29 of 30. See the
+[RAG report](evaluations/rag/report.md) for language breakdown, the missed
+case, and measurement limits.
