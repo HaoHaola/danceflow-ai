@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from .db import get_db_session
+from .knowledge import router as knowledge_router
 from .models import TrainingPlan, TrainingSession, User
 from .schemas import (
     HealthResponse,
@@ -25,6 +26,7 @@ from .schemas import (
 
 
 app = FastAPI(title="DanceFlow AI")
+app.include_router(knowledge_router)
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 

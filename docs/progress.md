@@ -130,4 +130,14 @@ Week 2.3 的交付檔案如下。
 - **五題 generation 評估已鎖定**。使用者於 2026-11-27 確認 `week2.5-generation-pilot-v1-approved.1`。共用品質分與 RAG 引用檢查各自記錄。
 - **成對生成完成**。五題各跑一次 RAG 與 LLM-only，10 筆均 completed，共 13,354 tokens。逐題原始回答、完整來源、使用量及耗時保存在 `evaluations/rag/local/week2.5/generation-pairs-v1-approved.1/`，人工對照從該目錄的 `review.md` 開始。
 - **目前離線驗證**。API job 同條件為 151 passed、5 MySQL 測試 deselected。這批變更的遠端 CI 尚未執行。
-- **下一步**。人工審查五題回答及引用。五題分數留空，完整 30 題 generation 未執行。FastAPI 問答 endpoint 與 Streamlit 介面尚未實作。
+- **五題評分完成**。ChatGPT 協助審查，使用者於對話確認。兩種模式各五題，三項全部 2／2／2。這批 pilot 分數未呈現 RAG 品質提升。RAG 提供可追溯依據，補充例子仍需核對歸屬。評分與理由另存同目錄的 `scores-v1.json` 及 `review.md`。
+- **FastAPI 問答 endpoint 已驗證**。`POST /api/v1/knowledge/ask` 共用 CLI 的 RAG service，首個有效請求驗證並載入模型，後續在同一程序重用。Swagger 與 OpenAPI 路由已確認。一次真實 HTTP 請求回 200，使用 2,850 tokens，客戶端耗時 23.099 秒。獨立結果在 `evaluations/rag/local/week2.5/api-smoke-v1.json`。
+- **Endpoint 離線驗證**。167 passed、5 MySQL 測試 deselected。當時未量測真實 warm request，後續 Streamlit 驗證見下方。完整 30 題 generation 與此分支遠端 CI 仍待執行。
+- **Knowledge API schema 歸位**。四個問答 Pydantic models 移至 `backend/app/schemas.py`，路由與 runtime 維持在 `knowledge.py`。搬移前後 OpenAPI 一致。離線回歸 167 passed、5 MySQL 測試 deselected，無 key 時 `/health` 回 200、問答回 503，且未載入 RAG runtime。
+
+- **Streamlit 單題問答介面已完成**。繁中介面接受中英文題目，表單提交後透過 HTTP 呼叫既有問答 API。回答引用與其他取回來源分開，執行資訊可展開，Session State 保存成功結果。
+- **Streamlit 離線與本機驗證**。前端 AppTest 9 passed，backend 非 MySQL 167 passed、5 deselected。獨立前端 CI job 已配置，遠端未執行。Streamlit 頁面及 backend health 回 200。AppTest 經真實 HTTP 對同一 backend 程序送兩筆問答，首筆與後續的 HTTP 耗時為 21.645／8.932 秒，均回 200 並確認完整回答與五筆來源可顯示。未操作瀏覽器 UI。完整結果在 `evaluations/rag/local/week2.5/streamlit-smoke-v1.json`。
+
+### Week 2.5 本機串接 checkpoint
+
+五題 pilot 評分、真實 FastAPI HTTP smoke，以及 Streamlit AppTest 連真實 backend 的冷／熱請求驗證均已完成。這批 pilot 的兩種模式三項皆為 2／2／2，未呈現 RAG 的品質分數提升。瀏覽器 UI 操作與完整 30 題 generation 評估待完成。原始評估與 smoke 產物留在 Git 忽略的本機目錄。

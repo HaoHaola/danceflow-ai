@@ -910,3 +910,17 @@ BGE 相對同 k 的候選文字量都較高，例如相對 dense 代理 tokens �
 - 實際按固定順序執行五題各一筆 RAG 與 LLM-only，10 筆均為 `completed` 且有非空文字，API 模型均為 `gpt-6.1-terra`。零重試、零失敗、零截斷。總用量 10,359 input、2,995 output，合計 13,354 tokens。RAG 每題有五筆來源，引用編號檢查未發現表外編號。實質支持與漏引留待人工審查。
 - `local/week2.5/generation-pairs-v1-approved.1/` 保存逐模式 JSON、run manifest 與完整 `review.md`。CLI 計時與程序 wall time 分列。未自動評分、未使用 LLM judge、未執行完整 30 題。
 - 下一步是人工審查五題回答與引用。FastAPI 問答 endpoint 與 Streamlit 介面尚未實作。此 feature branch 單獨推送不會觸發現行 workflow，這批改動的遠端 CI 尚未執行。
+
+### Week 2.5 pilot 評分與 RAG HTTP endpoint
+
+- ChatGPT 協助審查，使用者於對話確認。核准版 `week2.5-generation-pilot-v1-approved.1` 的 10 筆成對回答，三項分數皆為 2／2／2。本機 `local/week2.5/generation-pairs-v1-approved.1/scores-v1.json` 與該目錄的 review 保存分數、理由及引用備註。核對前後 SHA-256，鎖定 rubric 與十個原始生成 JSON 均一致。這批 pilot 的三項分數未呈現 RAG 品質提升。RAG 提供可追溯依據，補充例子仍需核對歸屬。
+- `POST /api/v1/knowledge/ask` 與 CLI 共用現有 retrieval、context、prompt 及 OpenAI 設定。每程序延遲載入並重用 embedding encoder 與 reranker。同步 route 由 worker thread 執行，同一程序內用 lock 序列化模型與生成工作。保留 512-token preflight，HTTP 邊界另限制去掉頭尾空白後 2,000 字元。
+- 本機 `/docs` HTTP 200，OpenAPI 包含 POST 路由。2026-11-27 對 bounce 送一次真實 HTTP 問答，回 200、`gpt-6.1-terra`，五筆來源，2,457 input／393 output／2,850 total tokens。檢索 502.140 ms、rerank 2,008.823 ms、context 0.144 ms、生成與引用編號檢查 12,953.008 ms、service total 22,573.258 ms、client wall 23,098.934 ms。這是首筆冷啟動，service total 包含語料驗證、模型載入及請求處理，從 `RagService.ask()` 內 Qdrant client 模組匯入後起算。原始 HTTP 結果另存 `local/week2.5/api-smoke-v1.json`。
+- 從 `backend/` 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest -m 'not mysql'` 為 167 passed、5 deselected，有一則既有 Starlette TestClient 棄用警告。遠端 CI、真實 warm request、完整 30 題生成評估未執行。
+
+### Week 2.5 Streamlit 單題介面驗證
+
+- 前端只透過既有 `POST /api/v1/knowledge/ask`，沿用 154 段、dense exact top-10、Qwen3-Reranker-0.6B `evidence-v2`、top-5 和 `week2.5-generation-v1`。表單每次提交最多一次 HTTP 請求，120 秒 timeout，Session State 保存成功回應。此次介面驗證的請求未列入 generation 評分。
+- 2026-11-27 在相同 backend 程序上，AppTest 實際提交繁中 bounce 和英文 Arm Wave 問題各一次。兩筆均回 HTTP 200、`gpt-6.1-terra`，各顯示完整回答、五個來源連結及執行資訊。最後一次 rerun 保留結果，呼叫總數仍為兩次。Streamlit 首頁及 backend health 的 HTTP 檢查均回 200。未操作瀏覽器 UI。
+- 首次／後續的 frontend HTTP wall time 為 21,645.343／8,931.900 ms，backend total 為 21,141.291／8,919.243 ms，後續回應無模型載入計時欄位。首次用量 2,457 input／293 output／2,750 total tokens，後續 2,429／234／2,663。問題和生成長度不同，這兩筆是觀察值。獨立結果 `local/week2.5/streamlit-smoke-v1.json`。
+- 在 `frontend/` 執行 `.venv/bin/python -m pytest` 為 9 passed。在 `backend/` 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -B -m pytest -m 'not mysql'` 為 167 passed、5 deselected，一則既有 Starlette TestClient 棄用警告。`actionlint` 及 `git diff --check` 通過。遠端 CI 與完整 30 題 generation 評估未執行。

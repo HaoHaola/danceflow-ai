@@ -196,3 +196,32 @@ def test_api_error_is_saved_without_raw_message(rag, monkeypatch):
     assert result["status"] == "api_error"
     assert result["error"] == {"http_status": None, "type": "APIConnectionError"}
     assert "sensitive detail" not in json.dumps(result)
+
+
+def test_service_serializes_requests_and_reuses_models(rag, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import sys
+
+    qdrant = Mock()
+    monkeypatch.setitem(sys.modules, "qdrant_client", SimpleNamespace(QdrantClient=Mock(return_value=qdrant)))
+    service = rag.RagService(Path("artifact"))
+
+    def initialize(client):
+        service.encoder = SimpleNamespace(tokenizer=object())
+        service.scorer = Mock()
+        service.chunks = {}
+        service.settings = {}
+        return {"encoder_load": 1.0}
+
+    init = Mock(side_effect=initialize)
+    monkeypatch.setattr(service, "initialize", init)
+    monkeypatch.setattr(rag.dense, "check_query_tokens", Mock())
+    pipeline = Mock(side_effect=lambda *args: {"timings_ms": {}})
+    monkeypatch.setattr(rag, "run_pipeline", pipeline)
+    with ThreadPoolExecutor(2) as workers:
+        results = list(workers.map(service.ask, ("a question", "another question")))
+
+    init.assert_called_once_with(qdrant)
+    assert pipeline.call_count == 2
+    assert sum("encoder_load" in r["timings_ms"] for r in results) == 1
+    assert qdrant.close.call_count == 2

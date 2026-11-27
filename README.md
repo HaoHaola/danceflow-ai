@@ -15,7 +15,7 @@ reading weekly training plans. The training-plan draft endpoint is a placeholder
 | Week 2.2 | Finalized 154 chunks, approved the 30-question retrieval set, and completed Qwen model selection and the local embedding smoke test. |
 | Week 2.3 | Embedded and ingested 154 chunks. The 30-question exact dense baseline retrieved a complete minimum evidence plan for 29 questions at top 5. |
 | Week 2.4 | Selected exact dense top-10 → Qwen3-Reranker-0.6B with `evidence-v2` → top-5 after comparing instruction variants and BGE on the same 30 development questions. |
-| Week 2.5 | Verified OpenAI connectivity and the local RAG CLI. Generated both modes for all five approved pilot questions. Human review is pending. |
+| Week 2.5 | Verified OpenAI connectivity and the local RAG CLI. Reviewed both modes for five pilot questions and connected the FastAPI RAG endpoint to a single-question Streamlit interface. |
 
 See the [development progress](docs/progress.md) for milestone history and the
 [roadmap](docs/development-roadmap.md) for planned capabilities.
@@ -559,6 +559,99 @@ Local review files under `evaluations/rag/local/week2.5/`
 - `generation-pilot-v1/review.md` and `generation-pilot-v1.lock.json` for the approved rubric and hashes.
 - `generation-pairs-v1-approved.1/review.md` for all ten answers, sources and timings, plus one JSON per mode and question in the same folder.
 
-Next is human review of the five answer pairs. Scoring and the 30-question
-generation run are pending. The FastAPI Q&A endpoint and Streamlit interface
-are planned. See the [RAG report](evaluations/rag/report.md#week-25-五題核准版與成對生成).
+ChatGPT assisted the review and the user confirmed the results. All ten
+answers received 2/2/2 for correctness, relevance/completeness, and
+actionability. In this pilot the scores show no quality gain from RAG. The RAG
+answers provide traceable sources, and specific supplemental examples still
+require attribution checks. The local pair directory contains `scores-v1.json`
+and the scored `review.md`. The approved rubric and original responses were preserved.
+The 30-question generation run is pending.
+See the [RAG report](evaluations/rag/report.md).
+
+### Run the Week 2.5 RAG HTTP endpoint
+
+Use the existing embedding virtual environment to serve FastAPI and the RAG
+models in one process. A fresh environment also needs the locked corpus and
+embedding artifact, the Qwen embedding and reranker model caches, and the
+existing Qdrant collection. See the preparation, ingestion, and reranker
+sections above. Set `OPENAI_API_KEY` in the repo-root `.env`.
+
+From the repository root:
+
+```sh
+rag_python=evaluations/rag/local/.embedding-venv/bin/python
+"$rag_python" -m pip install -r backend/requirements.txt \
+  -r evaluations/rag/requirements-embedding.txt -r evaluations/rag/requirements-qdrant.txt
+docker compose start qdrant
+export PYTHONPATH=backend
+export HF_HUB_CACHE="$PWD/evaluations/rag/local/hf-cache"
+export HF_HUB_OFFLINE=1
+export RAG_ARTIFACT="$PWD/evaluations/rag/local/week2.3/embeddings/cb6d84b8fdaf7a6b14e0c0398a32acdcea45936ed668ab9ed40ac97701203f14"
+export RAG_RERANKER_DEVICE=mps
+"$rag_python" -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+```
+
+Set `RAG_RERANKER_DEVICE=cpu` when MPS is unavailable. Open
+`http://127.0.0.1:8765/docs`, expand `POST /api/v1/knowledge/ask`, then choose
+**Try it out** and **Execute**. The curl equivalent is:
+
+```sh
+curl http://127.0.0.1:8765/api/v1/knowledge/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"我做 bounce 時看起來很僵硬，練習時應該注意哪些身體動作？"}'
+```
+
+Each valid request can use the OpenAI API. The first request verifies the local
+artifacts and Qdrant collection and loads the embedding encoder and reranker. Later requests reuse the
+models within the same worker process. Requests to that service run serially
+on FastAPI worker threads. The ordinary backend can start without RAG
+dependencies, Qdrant, or an OpenAI key.
+
+The API accepts a nonblank question of at most 2,000 characters after trimming.
+The existing 512-token check includes the embedding query prompt and special
+tokens. It returns HTTP 422 for invalid input, 503 for unavailable runtime or
+configuration, 502 for upstream failures or invalid answers, and 504 for
+upstream timeouts. Success includes an answer, citation-to-source mapping, model,
+usage, and stage timings.
+
+Observed locally: 167 offline tests passed and five MySQL tests were deselected.
+Swagger and the OpenAPI route were verified. A single HTTP request returned 200,
+using 2,457 input and 393 output tokens, in 23.099 seconds client wall time.
+The raw response is saved at `evaluations/rag/local/week2.5/api-smoke-v1.json`.
+Remote CI for the endpoint is pending. See the Streamlit section for the subsequent cold and warm HTTP measurements.
+
+### Run the Week 2.5 Streamlit interface
+
+Start Qdrant and the FastAPI service first using the commands above. Then, from
+the repository root, in another terminal:
+
+```sh
+python3 -m venv frontend/.venv
+frontend/.venv/bin/python -m pip install -r frontend/requirements.txt
+export DANCEFLOW_API_BASE_URL=http://127.0.0.1:8765
+frontend/.venv/bin/python -m streamlit run frontend/app.py \
+  --server.address 127.0.0.1 --server.port 8501
+```
+
+Open `http://127.0.0.1:8501`. The interface accepts Traditional Chinese and English
+questions. Submit the form to see the answer and its cited sources. Other
+retrieved sources and execution details have separate expanders. The last
+successful result stays in Session State for ordinary reruns. Submitting a new
+question clears the previous result before validation and any HTTP request.
+
+Set `DANCEFLOW_API_BASE_URL` in the frontend process environment when the API
+runs at a different address. The default is `http://127.0.0.1:8765`. The frontend
+uses a 120-second HTTP timeout and makes one request per valid submission.
+OpenAI configuration stays in the backend. No key is needed in the frontend.
+
+From `frontend/`, install `requirements-dev.txt` and run
+`.venv/bin/python -m pytest` for the mocked AppTest suite. The frontend CI job
+runs this suite with its own dependencies.
+
+Locally, nine mocked AppTests and 167 non-MySQL backend tests passed. AppTest
+also submitted two live requests against one backend process, and the hosted
+Streamlit page returned HTTP 200. The first and subsequent frontend HTTP calls
+took 21.645 and 8.932 seconds. They used different questions. The smoke test
+checked rendered elements with AppTest. Browser interaction was not tested.
+Results are saved in
+`evaluations/rag/local/week2.5/streamlit-smoke-v1.json`. Remote CI is pending.

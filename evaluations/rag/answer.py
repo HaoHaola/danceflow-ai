@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from threading import Lock
 from time import perf_counter
 
 from openai import APIError, APIStatusError, OpenAI
@@ -167,6 +168,96 @@ def run_llm_only(question):
     return result
 
 
+class QueryTokenLimitError(ValueError):
+    pass
+
+
+class RagService:
+    """Reuse local models and serialize requests within one process."""
+
+    def __init__(self, artifact, device="mps"):
+        self.artifact = artifact
+        self.device = device
+        self.lock = Lock()
+        self.encoder = None
+
+    def initialize(self, qdrant):
+        import torch
+        from sentence_transformers import SentenceTransformer
+
+        started = perf_counter()
+        embed, ingest = dense.embed_batch, dense.ingest_qdrant
+        documents, chunks, inputs = embed.load_locked_corpus()
+        vectors, metadata = ingest.load_batch(self.artifact, chunks, inputs)
+        points = ingest.build_points(documents, chunks, vectors)
+        if qdrant.info().version != ingest.SERVER_VERSION:
+            raise ValueError(f"Expected Qdrant {ingest.SERVER_VERSION}")
+        ingest.verify_collection(qdrant, ingest.COLLECTION, metadata, points)
+        verified = perf_counter()
+
+        torch.set_num_threads(embed.THREADS)
+        encoder = SentenceTransformer(
+            embed.MODEL_ID, revision=embed.REVISION, local_files_only=True,
+            device="cpu", model_kwargs={"dtype": torch.float32},
+        )
+        encoder.max_seq_length = embed.MAX_SEQUENCE_LENGTH
+        if next(encoder.parameters()).dtype != torch.float32:
+            raise ValueError("Expected float32 query encoder")
+        encoder_loaded = perf_counter()
+        scorer = rerank.QwenReranker(self.device, rerank.INSTRUCTIONS[RERANK_INSTRUCTION])
+        self.chunks = {chunk["chunk_id"]: chunk for chunk in chunks}
+        self.scorer = scorer
+        self.settings = {
+            **generation_settings(PROMPT_VERSION),
+            "retrieval": {
+                **metadata,
+                "collection": ingest.COLLECTION, "corpus_chunks": len(points),
+                "query_prompt": dense.QUERY_PROMPT, "embedding_device": "cpu",
+                "dense_limit": DENSE_LIMIT, "dense_search": "exact cosine",
+                "reranker_model": rerank.MODEL_ID, "reranker_revision": rerank.REVISION,
+                "reranker_instruction": RERANK_INSTRUCTION, "reranker_device": self.device,
+                "reranker_batch_size": rerank.BATCH_SIZE, "dtype": "float32",
+                "context_limit": CONTEXT_LIMIT,
+            },
+        }
+        self.encoder = encoder
+        return {
+            "corpus_and_collection_validation": 1000 * (verified - started),
+            "encoder_load": 1000 * (encoder_loaded - verified),
+            "reranker_load": 1000 * (perf_counter() - encoder_loaded),
+        }
+
+    def ask(self, question, *, dry_run=False):
+        from qdrant_client import QdrantClient
+
+        started = perf_counter()
+        ingest = dense.ingest_qdrant
+        with self.lock, closing(QdrantClient(url=ingest.URL, timeout=15)) as qdrant:
+            acquired = perf_counter()
+            startup = self.initialize(qdrant) if self.encoder is None else {}
+            validation_started = perf_counter()
+            try:
+                dense.check_query_tokens(self.encoder.tokenizer, [("question", question)])
+            except ValueError as error:
+                raise QueryTokenLimitError(str(error)) from error
+            validation_ms = 1000 * (perf_counter() - validation_started)
+
+            def retrieve(query):
+                _, hits, timings = dense.run_query(self.encoder, qdrant, query, limit=DENSE_LIMIT)
+                return hits, {key: timings[key] for key in ("query_embedding", "qdrant_round_trip")}
+
+            result = run_pipeline(
+                question, retrieve, self.scorer.score, self.chunks,
+                None if dry_run else generate_from_settings,
+            )
+        result.update(question=question, mode="rag", settings=self.settings)
+        result["timings_ms"].update(
+            startup, queue=1000 * (acquired - started), query_validation=validation_ms,
+            total=1000 * (perf_counter() - started),
+        )
+        return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--question", required=True)
@@ -192,69 +283,12 @@ def main(argv=None):
     if args.artifact is None:
         parser.error("--artifact is required for RAG mode")
 
-    import torch
-    from qdrant_client import QdrantClient
-    from sentence_transformers import SentenceTransformer
-
-    started = perf_counter()
-    embed, ingest = dense.embed_batch, dense.ingest_qdrant
     try:
-        documents, chunks, inputs = embed.load_locked_corpus()
-        vectors, metadata = ingest.load_batch(args.artifact, chunks, inputs)
-        points = ingest.build_points(documents, chunks, vectors)
-        chunks_by_id = {chunk["chunk_id"]: chunk for chunk in chunks}
-        with closing(QdrantClient(url=ingest.URL, timeout=15)) as qdrant:
-            if qdrant.info().version != ingest.SERVER_VERSION:
-                raise ValueError(f"Expected Qdrant {ingest.SERVER_VERSION}")
-            ingest.verify_collection(qdrant, ingest.COLLECTION, metadata, points)
-            verified = perf_counter()
-
-            torch.set_num_threads(embed.THREADS)
-            encoder = SentenceTransformer(
-                embed.MODEL_ID, revision=embed.REVISION, local_files_only=True,
-                device="cpu", model_kwargs={"dtype": torch.float32},
-            )
-            encoder.max_seq_length = embed.MAX_SEQUENCE_LENGTH
-            if next(encoder.parameters()).dtype != torch.float32:
-                raise ValueError("Expected float32 query encoder")
-            dense.check_query_tokens(encoder.tokenizer, [("question", question)])
-            encoder_loaded = perf_counter()
-            scorer = rerank.QwenReranker(args.device, rerank.INSTRUCTIONS[RERANK_INSTRUCTION])
-            reranker_loaded = perf_counter()
-
-            def retrieve(query):
-                _, hits, timings = dense.run_query(encoder, qdrant, query, limit=DENSE_LIMIT)
-                return hits, {key: timings[key] for key in ("query_embedding", "qdrant_round_trip")}
-
-            result = run_pipeline(
-                question, retrieve, scorer.score, chunks_by_id,
-                None if args.dry_run else generate_from_settings,
-            )
+        result = RagService(args.artifact, args.device).ask(question, dry_run=args.dry_run)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
 
-    result["question"] = question
-    result["mode"] = "rag"
-    result["settings"] = {
-        **generation_settings(PROMPT_VERSION),
-        "retrieval": {
-            **metadata,
-            "collection": ingest.COLLECTION, "corpus_chunks": len(chunks),
-            "query_prompt": dense.QUERY_PROMPT, "embedding_device": "cpu",
-            "dense_limit": DENSE_LIMIT, "dense_search": "exact cosine",
-            "reranker_model": rerank.MODEL_ID, "reranker_revision": rerank.REVISION,
-            "reranker_instruction": RERANK_INSTRUCTION, "reranker_device": args.device,
-            "reranker_batch_size": rerank.BATCH_SIZE, "dtype": "float32",
-            "context_limit": CONTEXT_LIMIT,
-        },
-    }
-    result["timings_ms"].update(
-        corpus_and_collection_validation=1000 * (verified - started),
-        encoder_load_and_query_validation=1000 * (encoder_loaded - verified),
-        reranker_load=1000 * (reranker_loaded - encoder_loaded),
-        total=1000 * (perf_counter() - started),
-    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if args.dry_run:
         return 0
