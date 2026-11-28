@@ -924,3 +924,150 @@ BGE 相對同 k 的候選文字量都較高，例如相對 dense 代理 tokens �
 - 2026-11-27 在相同 backend 程序上，AppTest 實際提交繁中 bounce 和英文 Arm Wave 問題各一次。兩筆均回 HTTP 200、`gpt-6.1-terra`，各顯示完整回答、五個來源連結及執行資訊。最後一次 rerun 保留結果，呼叫總數仍為兩次。Streamlit 首頁及 backend health 的 HTTP 檢查均回 200。未操作瀏覽器 UI。
 - 首次／後續的 frontend HTTP wall time 為 21,645.343／8,931.900 ms，backend total 為 21,141.291／8,919.243 ms，後續回應無模型載入計時欄位。首次用量 2,457 input／293 output／2,750 total tokens，後續 2,429／234／2,663。問題和生成長度不同，這兩筆是觀察值。獨立結果 `local/week2.5/streamlit-smoke-v1.json`。
 - 在 `frontend/` 執行 `.venv/bin/python -m pytest` 為 9 passed。在 `backend/` 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -B -m pytest -m 'not mysql'` 為 167 passed、5 deselected，一則既有 Starlette TestClient 棄用警告。`actionlint` 及 `git diff --check` 通過。遠端 CI 與完整 30 題 generation 評估未執行。
+
+### Week 2.6 Generation 標註擴充
+
+- 輸入為 `week2.2-retrieval-set-v1` 和 `week2.5-generation-pilot-v1-approved.1`，並沿用原封存 corpus、rubric 及引用檢查政策。新增版本 `week2.6-generation-annotations-v1`，dataset SHA-256 `28bf7463fa862a1727ed88124e7209698c0e3ad03ef3f8c380b60427e5f04080`。JSON 和人工預覽保存在 Git 忽略的 `local/week2.6/generation-annotations-v1/`。
+- 同批 30 題的 ID、題文、語言逐筆相符。五題沿用核准標註，原核准紀錄透過 `pilot_release` 保留，25 題新標註均為 `needs_review`。此版本的 reviewer、reviewed_at、實際評分及 RAG 檢查欄留空。原 pilot dataset、preview 的鎖定 SHA-256 再驗證一致。
+- 逐題查閱原評估證據與所在段落後起草意圖、最低要求、替代方案和評分錨點。證據以實際 chunk 範圍映射至 clean block/cue。引用支持異於答案正確性，教材明示、合理推論與自行設計練習分別標記，字幕與出處不足列待確認。
+- `PYTHONPATH=. python3 -B /tmp/danceflow_week26_build.py --validate-only` 從磁碟重讀草稿並驗證結構、參考 ID、28 個新增證據錨點、115 筆 block/cue 定位及 225 個新增評分錨點。既有 `python3 -B evaluations/rag/validate_retrieval_pilot.py` 通過。未呼叫付費 API、未生成回答、未評分。
+
+### Week 2.6 Generation 標註核准版
+
+- 使用者於 2026-11-27（Asia/Taipei）核准新增 25 題。核准版 `week2.6-generation-annotations-v1-approved.1` 位於 `local/week2.6/generation-annotations-v1-approved.1/`，含 `dataset.json`、`review.md` 和 `generation-annotations-v1.lock.json`。Dataset SHA-256 為 `936ed080150a5ca7a1a76f8f9b5be29e0f515ea84f43c1a86c004b754d86005f`，review SHA-256 為 `1bd65c62d3cd1e1ab97d35fbb4d98c5bb33441e3373442ed540776a315f3956e`。鎖記錄原草稿、pilot 溯源及 retrieval release lock 雜湊。
+- Milking 的四拍、換路徑列為選答，必答為兩姿勢間慢速、連續、受控的過渡，可執行性檢查起終點與重複方式。Foundation 的至少兩種動作和跟拍方法是評估約定，教材例子與自行設計組合分列。Clothing 的教室鞋規另標為情境建議。全稿將未確認事實、引用歸屬與可證實的事實錯誤分開。
+- `PYTHONPATH=. python3 -B /tmp/danceflow_week26_approve.py --validate-only` 通過，核對 30 題 ID、題文、語言、核准狀態及留空欄位，重新映射 28 個新增證據錨點、115 筆 block/cue 定位，並驗證原草稿與 pilot 雜湊及核准版鎖。尚未執行 30 題生成、品質評分或回答引用檢查。
+
+### Week 2.6 新增 25 題成對生成
+
+- 2026-11-27（Asia/Taipei）使用 `week2.6-generation-annotations-v1-approved.1`，dataset SHA-256 `936ed080150a5ca7a1a76f8f9b5be29e0f515ea84f43c1a86c004b754d86005f`。執行前驗證鎖定檔、題目狀態及 Week 2.5 prompt 文字與設定一致。生成端只取得原題、固定 prompt 與 RAG 即時取回的 context。
+- 設定為 `gpt-6.1-terra`、reasoning `none`、輸出上限 1500、timeout 60 秒、零重試。RAG `week2.5-generation-v1` 採 exact dense top-10 → Qwen3-Reranker-0.6B `evidence-v2` → top-5，單一服務程序重用模型。LLM-only `week2.5-llm-only-v1` 不提供教材、檢索或搜尋，最多兩筆同時執行。兩模式重疊執行，批次牆鐘約 163 秒。
+- 共執行 50 次，兩種模式各 25 筆 completed、0 失敗、0 截斷。逐題 runner wall time 的 P95 採線性插值。以下用量為 API 回傳值。
+
+| 模式 | 輸入 tokens | 輸出 tokens | 總 tokens | 每題 P50／P95（秒） | 逐題耗時加總（秒） |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| RAG | 46,987 | 3,115 | 50,102 | 5.734／10.181 | 162.900 |
+| LLM-only | 2,235 | 3,260 | 5,495 | 3.499／8.112 | 110.321 |
+
+- RAG 的 query embedding、Qdrant、rerank P50 分別為 80.470、10.370、1,730.178 ms。生成與機械引用檢查 P50 為 RAG 3,794.878 ms，LLM-only 3,499.326 ms。實測受模型載入及兩模式重疊影響。用量、延遲與通過編號檢查均未用於推論答案品質。
+- 本機 `local/week2.6/generation-pairs-v1-approved.1/` 保存 50 個逐筆 JSON、`run.json`、`summary.json` 和 `review.md`。執行後重讀確認題面、版本、空白評分欄與機械引用檢查一致，兩種模式均無表外編號。原五題沿用 `week2.5-generation-pilot-v1-approved.1` 的既有結果，舊批次 manifest 與十份原始 JSON 雜湊一致。本批人工品質評分和引用判定未執行。
+
+### Week 2.6 八點 body wave 原位修訂及重測
+
+- 2026-11-28（Asia/Taipei）使用者核准。保留 `draft-body-wave-path`，將題目改為提供八點順序後要求拆練。必答為單點控制、分段、雙膝跨側與連續串接，實用性要求可跟做的慢練與重複。鏡子、錄影、數拍與速度為選答。教材明示、合理推論與自設練法分列，待查事實與引用支持獨立。
+- 核對 STEEZY 原始 HTML、reader Markdown、clean blocks 43、44、46、49、50 和 chunk 字元定位。已有 `0009` 分段練習與 `0010` isolation／完成全波浪，兩段合為最低充分的教材練習框架。`0008` 路徑只列補充。教材未明示膝間精確承重或關節角度。原始快照、清理、切段、154 個 chunk IDs、embedding 與 Qdrant collection 均沿用。Artifact 驗證明確綁定原 embedding release 的 canonical hash，仍核對現行完整 corpus、fingerprint、映射、向量及 collection metadata。
+- Retrieval dataset SHA-256 更新為 `2302b2b7d39b11f51c3d04500fe133ada84d326d5a1af57c20261c82bba6f0ee`，共 30 題及 63 筆證據。Generation 核准版 SHA-256 更新為 `67824032012bb22414e31f9655848ea0e8effdce51028311ad2060e463ed80c3`，原版本名稱與 pilot 溯源保留。重讀兩份標註核對 30 題 ID、原文、語言、證據定位與鎖定。
+- Wave 新題 exact dense 第 2／5 名為 `0010`／`0009`。Dense top-5 和 top-10 皆完成，`evidence-v2` rerank top-5 留下 `0009` 而遺漏 `0010`，因此成員命中但充分方案未完成。舊版 30 題 retrieval 指標只適用原題及舊 hash，新版未重跑整批 retrieval。未修改其他題的證據或生成結果。
+- 本機 `local/week2.6/generation-pairs-v1-approved.1/` 原位更新 wave 的兩個結果與 run、review、summary，另存 `wave-retrieval.json`。以原 prompt 和設定向 `gpt-6.1-terra` 送兩筆，均 completed，零重試。RAG 1,169 input／559 output／1,728 total tokens、runner 15.777 秒。LLM-only 146／545／691、runner 12.037 秒。RAG 的模型在唯讀 preflight 已載入，重測耗時為 warm。兩筆機械引用檢查均無表外編號，人工結果留空。
+- 現行 30 題有效結果為 60 筆，兩種模式各 30 完成、0 失敗、0 截斷，共 59,499 input／10,221 output／69,720 total tokens。歷次評估生成含原 pilot、第一輪 25 題與 wave 重測共 62 次、60,896／10,474／71,370 tokens，未含其他 smoke。舊 wave 用量只留在歷次批次加總。保留原五題執行來源，舊 wave 兩份結果原位更新。
+- 離線執行 `python3 -B evaluations/rag/validate_retrieval_pilot.py`、修訂 lock／prompt 交叉檢查及 `git diff --check` 均通過。從 backend 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -B -m pytest -m 'not mysql'` 為 168 passed、5 deselected，一則既有 Starlette 棄用警告。
+
+### Week 2.6 修訂題庫的 evidence-v3-practice 對照
+
+2026-11-28（Asia/Taipei）。此 30 題是調整 instruction 的開發集。新候選只在 v2 後追加通用的練習證據優先規則，命名 `evidence-v3-practice` 以保留舊 `evidence-v3` 歷史紀錄。修訂後 wave 與其餘題目均新取 exact dense top-10，舊快取 hash 不符，未復用。逐題用本機 dot product 驗證排名及分數。每題兩個 instruction 共用候選、排序規則與文字，reranker 只讀問題和候選的 `embedding_text`。評分在推論後獨立執行。
+
+沿用同一個已驗證的 154-chunk artifact、Qdrant collection、Qwen3-Embedding-0.6B CPU／float32 與 Qwen3-Reranker-0.6B MPS／float32。Reranker 模型留在同一程序，沿用 batch size 2、eager、固定模板、無截斷。兩版各暖機三題，再交替每題先執行的版本，測量每題各一次。Warm 計時含準備配對、tokenization、同步推論及排序。選中文本使用 `embedding_text` 以兩個換行串接，使用固定 embedding tokenizer、不含 special tokens 估算，無 OpenAI 用量意義。
+
+Dataset SHA-256 2302b2b7d39b11f51c3d04500fe133ada84d326d5a1af57c20261c82bba6f0ee
+Result SHA-256 70e163c0190b90aaa4e36685ff1e1e03ea4e99c588eea3a647b96db1fe32afa4
+
+Encoder 載入 0.433 s。Reranker 載入 0.763 s。
+
+#### 指標（成員命中／充分方案完成）
+
+| 模式 | 整體 | 繁中 | 英文 | 字元合計／平均 | 代理 tokens 合計／平均 |
+| --- | --- | --- | --- | ---: | ---: |
+| dense_3 | 28/30／27/30 | 15/15／14/15 | 13/15／13/15 | 100,905／3,363.5 | 22,976／765.9 |
+| dense_5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 | 150,155／5,005.2 | 34,485／1,149.5 |
+| evidence-v2_3 | 29/30／27/30 | 15/15／13/15 | 14/15／14/15 | 97,243／3,241.4 | 22,335／744.5 |
+| evidence-v2_5 | 30/30／29/30 | 15/15／14/15 | 15/15／15/15 | 156,312／5,210.4 | 35,929／1,197.6 |
+| evidence-v3-practice_3 | 29/30／27/30 | 15/15／13/15 | 14/15／14/15 | 102,285／3,409.5 | 23,374／779.1 |
+| evidence-v3-practice_5 | 29/30／28/30 | 15/15／14/15 | 14/15／14/15 | 151,427／5,047.6 | 34,820／1,160.7 |
+
+#### V3 相對同 k 的逐題變化
+
+| 比較 | 成員救回 | 成員退步 | 方案救回 | 方案退步 |
+| --- | --- | --- | --- | --- |
+| dense_3 → evidence-v3-practice_3 | draft-hip-hop-shift-before-move | 無 | draft-hip-hop-shift-before-move | draft-dime-stop-versus-strobing |
+| evidence-v2_3 → evidence-v3-practice_3 | 無 | 無 | 無 | 無 |
+| dense_5 → evidence-v3-practice_5 | 無 | 無 | 無 | draft-body-wave-path |
+| evidence-v2_5 → evidence-v3-practice_5 | 無 | pilot-arm-wave | 無 | pilot-arm-wave |
+
+#### Warm 計時
+
+| 模式 | Rerank P50／P95（ms） | 模板輸入 tokens 合計／最大 | 暖機（ms） |
+| --- | ---: | ---: | --- |
+| evidence-v2 | 1710.531／2445.254 | 109,196／715 | 1890.012／2013.852／1706.812 |
+| evidence-v3-practice | 2114.147／2899.879 | 137,396／809 | 2328.405／2384.489／2109.499 |
+
+#### Wave 完整排名
+
+| 名次 | Dense chunk／cosine | v2 chunk／分數 | v3 chunk／分數 |
+| ---: | --- | --- | --- |
+| 1 | 0008／0.682763 | 0008／6.925598 | 0008／7.317853 |
+| 2 | 0010／0.549740 | 0007／5.095033 | 0007／5.030945 |
+| 3 | 0007／0.536964 | 0009／2.837592 | 0009／2.316249 |
+| 4 | 0005／0.505228 | 0006／2.591643 | 0006／2.219861 |
+| 5 | 0009／0.500404 | 0005／1.468190 | 0005／0.844498 |
+| 6 | 0006／0.490171 | 0010／0.369011 | 0010／-0.489735 |
+| 7 | youtube-arm-waves-inside-out:0002／0.470428 | youtube-arm-waves-inside-out:0001／0.088573 | youtube-arm-waves-inside-out:0001／-0.870794 |
+| 8 | 0014／0.459038 | 0014／-0.292367 | 0016／-0.892066 |
+| 9 | 0016／0.454762 | youtube-arm-waves-inside-out:0002／-0.739318 | 0014／-1.067801 |
+| 10 | youtube-arm-waves-inside-out:0001／0.446083 | 0016／-0.964261 | youtube-arm-waves-inside-out:0002／-1.242996 |
+
+#### Wave 必要證據
+
+| 模式 | 0009 名次 | 0010 名次 | Top-3 方案 | Top-5 方案 |
+| --- | ---: | ---: | --- | --- |
+| dense | 5 | 2 | 未完成 | 完成 |
+| evidence-v2 | 3 | 6 | 未完成 | 未完成 |
+| evidence-v3-practice | 3 | 6 | 未完成 | 未完成 |
+
+#### 完整 v3 instruction
+
+> Retrieve passages containing explicit textual evidence useful for answering the dance question, including definitions, movement sequences, or practice instructions. A passage may support only part of the question. Mere topic mentions or introductions to unavailable media are insufficient. Treat descriptions of the relevant body parts and how they move together or in sequence as evidence for the queried movement, even when the movement itself is not named. Prioritize passages that supply information the user has not already provided and directly support the requested answer. When the question gives a definition or movement sequence and asks how to practice, prioritize evidence with breakdowns, control cues, transitions, or actionable practice steps. Give lower priority to passages that merely restate what the question already provides. Judge relevance by what the question asks: when it asks for a name, definition, or sequence, passages that directly provide it remain highly relevant.
+
+建議保留 v2。v3 對 v2 沒有救回任何完整方案。Wave 的 `0009` 固定第 3、`0010` 固定第 6，top-5 仍未找齊。相對 v2，v3 的 top-5 少一題 Arm Wave，warm P50／P95 增加約 404／455 ms，top-5 文字量則較少。Dense top-5 在同一開發集仍能取回新版 wave 的完整方案。分數依各 instruction 內部排序解讀。
+
+本機 `local/week2.6/reranker-evidence-v3-practice/` 保存結果 JSON、完整 instruction、逐題摘要與實驗程式。以 `python3 -B evaluations/rag/validate_retrieval_pilot.py` 驗證 30 題、63 筆 evidence。從 backend 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -B -m pytest tests/test_rag_dense_evaluation.py tests/test_rag_reranker.py tests/test_rag_retrieval_validation.py tests/test_rag_qdrant_artifact.py`，24 passed，含既有 Starlette 棄用警告。逐題結果檢查六種輸出共用候選。60 個生成回答驗證雜湊一致，未呼叫生成 API。Git diff check 通過。
+
+### Week 2.6 七題去除教材依賴後的檢索與生成重測
+
+2026-11-28（Asia/Taipei）。原位修訂換重心、Popping 歷史、Running Man、Lock、House influences、step-glide 與 bounce 手腳題。使用者授權新題面與重測，細部 evidence 選擇及 rubric 為待人工審查。接受有據的替代，不將目前語料視為所有正確答案的全集。鏡像、分級 BPM 或疊加練習等安排分開標記。此輪依題庫、來源與既定執行設定工作。
+
+- Retrieval dataset SHA-256 `068393d2d328d5eb85a4d5ba03e0594d92614e9bdbd196683d71806c759e39d3`，generation dataset SHA-256 `ebcc2a80454a8e71c7c3c7a3d80cac5e03a1bd88694f682471c39a6afab12e64`。30 題 ID 唯一、兩種語言各 15 題。69 筆 evidence 重新映射一致。Corpus、154 chunks、文件向量及 Qdrant 資料沿用已驗證的原 artifact 與 hash。
+- 全 30 題重新編碼並查 exact dense top-10，逐題核對 payload 與本機 dot product。以原 evidence-v2 對同批候選重排。完整七題排名與分數位於本機 `local/week2.6/retrieval-amended-current/review.md`。v3-practice 留作舊題面／舊 hash 的歷史開發實驗，未納入這個對照。
+
+各格為成員命中／充分方案完成。此為現行標註下的開發集，不是獨立測試。
+
+| 模式 | 整體 | 繁中 | 英文 |
+| --- | --- | --- | --- |
+| Dense top-3 | 29/30／28/30 | 15/15／14/15 | 14/15／14/15 |
+| Dense top-5 | 29/30／29/30 | 15/15／15/15 | 14/15／14/15 |
+| v2 top-3 | 29/30／26/30 | 15/15／13/15 | 14/15／13/15 |
+| v2 top-5 | 30/30／29/30 | 15/15／14/15 | 15/15／15/15 |
+
+同 k 對照，v2 top-3 的充分方案退步為 Dime Stop/Strobing、step-glide。v2 top-5 救回 Arm Wave，漏掉 body wave。七個重測題在 dense top-5 與 v2 top-5 均滿足目前標註，step-glide 的 v2 top-3 缺一段。V2 warm P50／P95 1.742／2.133 秒。
+
+- RAG 從上述新檢索取前五段，LLM-only 無教材或搜尋。兩模式使用原 instruction、`gpt-6.1-terra`、reasoning none、1500 output tokens、60 秒 timeout、零重試。各題只送原題和固定 instruction，RAG 另送即時自新檢索組裝的 context。七題共 14 次，均 completed、零失敗、零截斷。RAG 14,300 input／1,655 output／15,955 total；LLM-only 639／1,488／2,127。總計 18,082 tokens。兩筆並行，付費批次牆鐘約 42 秒。生成與機械引用檢查 P50／P95 分別為 RAG 4.798／12.676 秒、LLM-only 4.448／7.671 秒。Retrieval、rerank 與 context 計時另載逐筆檔。
+- 原位覆寫七題兩模式的生成 JSON，其他 46 筆雜湊一致。現行 60 筆有效回答合計 58,625 input／12,315 output／70,940 total tokens。歷次評估 API 共 76 次、75,835／13,617／89,452 tokens，含被取代的回答，未含 smoke。14 筆機械引用檢查無表外編號，人評與人工引用結果留空。先前的品質統計屬於當時的題面和回答。
+- 驗證命令為 `python3 -B evaluations/rag/validate_retrieval_pilot.py`，從 backend 執行 `env -u OPENAI_API_KEY PYTHON_DOTENV_DISABLED=1 .venv/bin/python -B -m pytest tests/test_rag_dense_evaluation.py tests/test_rag_reranker.py tests/test_rag_retrieval_validation.py tests/test_rag_qdrant_artifact.py` 為 24 passed，含一則既有 Starlette 棄用警告。另核對鎖定檔、原 prompt hash、60 筆題面、當次實際來源及 ZIP 相對連結。 `git diff --check` 通過。交接 ZIP 的評分欄留空，未附先前評分成果。
+
+### Week 2.6 完整 30 題 generation 評分收尾
+
+2026-11-28（Asia/Taipei）。以完整附件 `DanceFlow-Week2.6-final-review.zip` 為唯一回填來源。核對現行 generation dataset `ebcc2a80454a8e71c7c3c7a3d80cac5e03a1bd88694f682471c39a6afab12e64`、retrieval dataset `068393d2d328d5eb85a4d5ba03e0594d92614e9bdbd196683d71806c759e39d3`、30 題題面與 60 筆原始 JSON。回填後原答及 sources 的檔案雜湊均一致。
+
+審查為 ChatGPT 協助審查及使用者核定特定裁決，保留原五題的使用者確認溯源。七題僅題面修訂曾獲授權，細則是 ChatGPT 協助擬定，本批評分由使用者採用。細則原有待審狀態保留，題面、判準和 rubric 鎖定檔維持原樣。使用者核定 Bounce 手腳 RAG 與 House influences LLM-only 的 Correctness 為 2，Body Wave LLM-only 維持 C2。Step-glide 保持 RAG 2／1／1、LLM-only 2／2／2。
+
+| 模式 | Correctness | Relevance／completeness | Actionability | 合計 |
+| --- | ---: | ---: | ---: | ---: |
+| RAG | 60/60 | 59/60 | 59/60 | 178/180 |
+| LLM-only | 58/60 | 56/60 | 58/60 | 172/180 |
+
+30 組中 RAG 較高 3、LLM-only 較高 1、同分 26。繁中 RAG 90/90、LLM-only 89/90，英文為 88/90、83/90，僅供描述。在這組 30 題開發集上，RAG 的回答品質有小幅提升。多數題同分，並且 RAG 提供可追溯依據。尚未驗證獨立測試集上的泛化效果。Step-glide 的 RAG 有來源支持，但卸重和滑動的可跟做步驟不足。Speed-wall 的 LLM-only 將題目解為滾球，按目標舞蹈 drill 評為 0／0／0。題面缺少舞蹈或手臂語境，保留此限制，未另外修題或重測。
+
+引用查核獨立保存。30 筆 RAG 的引用編號均存在，回答層級 26 筆 supported、3 筆 partial（Musicality、Freestyle、Body Wave）、1 筆 `accepted_by_user_not_independently_video_verified`（Bounce 手腳）。Bounce 使用者接受品質 C2，影片精確對位未獨立觀看核實。回答層級分類不提供逐主張引用精確率。
+
+現行 60 筆有效用量 70,940 tokens（RAG 61,936、LLM-only 9,004）。歷次評估 API 76 次、89,452 tokens，包含被取代的回答。批次計時口徑不同，token 數不代表金額。30 題是曾用於調整的開發集，0–2 量表較粗且每題每模式只生成一次，分差不足以支持獨立測試集的泛化結論。
+
+本機 `local/week2.6/generation-pairs-v1-approved.1/` 的 `scores-final.json`、`citation-review-final.json`、`review.md` 與 `summary.json` 記錄逐筆依據與重算統計。重讀驗證 180 個品質欄皆有合法分數、語言分組與配對統計符合附件、引用編號與相對檔案連結有效。維持 v2，覆蓋性／互補選段優化、獨立新題集和 dense／v2 配對生成對照延後。此輪只回填評分與文件，未呼叫生成、重建向量或更動產品設定。

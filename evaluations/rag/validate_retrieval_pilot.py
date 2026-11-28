@@ -226,7 +226,8 @@ def validate_release(dataset_file, preview_file, lock, version):
     for question in questions:
         assert question["review_status"] == "approved"
         review = question["review"]
-        assert date.fromisoformat(review["date"]).isoformat() == review["date"] == "2026-11-24"
+        amendment_date = lock.get("question_amendments", {}).get(question["question_id"], "2026-11-24")
+        assert date.fromisoformat(review["date"]).isoformat() == review["date"] == amendment_date
         assert review["reviewer"] == "user" and review["basis"].strip()
     by_id = {question["question_id"]: question for question in questions}
     for qid, group_id in (("pilot-bounce", "downbeat"), ("pilot-arm-wave", "twelve-point")):

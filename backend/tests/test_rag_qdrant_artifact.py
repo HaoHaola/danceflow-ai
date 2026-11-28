@@ -47,3 +47,21 @@ def test_artifact_rejects_wrong_revision(staged_batch):
     artifact = stage({**importer.EMBEDDING_SPEC, "inputs": inputs, "revision": "wrong"})
     with pytest.raises(ValueError, match="incompatible revision"):
         importer.load_batch(artifact, chunks, inputs)
+
+
+def test_question_amendment_reuses_only_pinned_artifact_for_same_corpus(staged_batch):
+    from hashlib import sha256
+
+    importer, chunks, inputs, stage = staged_batch
+    artifact = stage({**importer.EMBEDDING_SPEC, "inputs": inputs})
+    pin = sha256(importer.embed_batch.json_bytes(inputs["release"])).hexdigest()
+    revised = {
+        **inputs,
+        "release": {**inputs["release"], "dataset_sha256": "new-question-hash",
+                    "embedding_release_sha256": pin},
+    }
+    assert importer.load_batch(artifact, chunks, revised) == importer.load_batch(artifact, chunks, inputs)
+    with pytest.raises(ValueError, match="incompatible inputs"):
+        importer.load_batch(artifact, chunks, {**revised, "corpus": {"batch_summary_sha256": "changed"}})
+    with pytest.raises(ValueError, match="incompatible inputs"):
+        importer.load_batch(artifact, chunks, {**revised, "release": {"embedding_release_sha256": "bad"}})

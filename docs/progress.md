@@ -141,3 +141,18 @@ Week 2.3 的交付檔案如下。
 ### Week 2.5 本機串接 checkpoint
 
 五題 pilot 評分、真實 FastAPI HTTP smoke，以及 Streamlit AppTest 連真實 backend 的冷／熱請求驗證均已完成。這批 pilot 的兩種模式三項皆為 2／2／2，未呈現 RAG 的品質分數提升。瀏覽器 UI 操作與完整 30 題 generation 評估待完成。原始評估與 smoke 產物留在 Git 忽略的本機目錄。
+
+## Week 2.6 Generation 標註擴充
+
+- 以鎖定的 `week2.2-retrieval-set-v1` 建立獨立版本 `week2.6-generation-annotations-v1`。原五題沿用 `week2.5-generation-pilot-v1-approved.1`，其餘 25 題的題文與語言保留，新增標註皆為 `needs_review`。
+- 逐題審查從本機 `evaluations/rag/local/week2.6/generation-annotations-v1/review.md` 開始。新稿區分教材明示、合理推論和自行設計練習。離線核對 30 題、28 個新增證據錨點、115 筆 block/cue 定位及 225 個新增評分錨點。
+- 下一步為人工審查新增 25 題的必答界線、可接受替代與證據歸屬。30 題生成與評分尚未執行。
+- **30 題 generation 標註定稿**。使用者於 2026-11-27（Asia/Taipei）核准新增 25 題，原五題沿用 pilot 核准。核准版為 `week2.6-generation-annotations-v1-approved.1`，存於本機 `evaluations/rag/local/week2.6/generation-annotations-v1-approved.1/`。原草稿保留。完整 30 題 generation、品質評分與回答引用檢查尚未執行。
+- **新增 25 題成對生成完成**。2026-11-27 使用核准版 `week2.6-generation-annotations-v1-approved.1`，RAG／LLM-only 各跑 25 筆，50 筆均 completed，零失敗、零截斷，共 55,597 tokens。原五題沿用 Week 2.5 原始批次，未重跑。
+- 新批次的逐題對照、逐筆 JSON 與用量／耗時彙整位於本機 `evaluations/rag/local/week2.6/generation-pairs-v1-approved.1/`。下一步為新增 25 題的人工品質評分與引用檢查。機械引用編號檢查未發現表外編號，人工欄仍留空。
+- **八點 body wave 題目已原位修訂並重測**。2026-11-28 維持相同 ID，改評估從單點到分段再到全段的拆練與膝間跨側。既有 corpus／embeddings／Qdrant 沿用。新版 dense top-5 找齊兩段必要證據，rerank top-5 漏了 isolation 段。只重跑 wave 的兩個模式，均 completed；舊 wave 回答已由本機新版結果取代。現行 30 題合計 69,720 tokens，歷次評估生成合計 71,370 tokens。人工評分及引用判定仍待執行。
+- **Wave 修訂後的 reranker 開發對照完成**。30 題皆重新檢索並共用候選，單一新候選 `evidence-v3-practice` 未將 wave 所需 `0010` 移入前五，仍排第 6。Top-5 充分方案為 dense 29/30、v2 29/30、v3 28/30。v3 較 v2 少 Arm Wave 一題，warm rerank 也較慢。本輪保留 v2 預設，生成回答與 prompt 維持原樣。 [完整結果](../evaluations/rag/report.md#week-26-修訂題庫的-evidence-v3-practice-對照)
+- **七題題面與標註原位修訂及重測完成**。同一 30 題、繁中／英文各 15 題。七題的新題面依使用者授權，標註細則仍待人工審查。重新計算 30 題 query 並比較 dense／v2。兩者 top-5 的充分方案皆為 29/30，v2 救回 Arm Wave、漏掉 body wave。七題各跑兩模式一次，14/14 完成，其餘 46 筆雜湊一致。現行 60 筆 70,940 tokens，歷次評估 API 76 次、89,452 tokens。本輪結果的人評及引用判定留空，待新一輪審查。交接 ZIP 存於本機 `evaluations/rag/local/week2.6/DanceFlow-Week2.6-seven-amended-human-review.zip`。
+
+- **Week 2.6 完成：30 題 generation 評估與審查收尾**。依 `DanceFlow-Week2.6-final-review.zip` 回填獨立品質與引用紀錄。ChatGPT 協助審查，使用者核定特定裁決。RAG C／R／A 為 **60／59／59**（178/180），LLM-only 為 **58／56／58**（172/180）。配對 3／1／26 為 RAG 較高／LLM-only 較高／同分。180 個品質分數均已填，60 筆原始回答雜湊一致。完整逐題對照在本機 `evaluations/rag/local/week2.6/generation-pairs-v1-approved.1/review.md`。
+- **判讀與待辦**。在這組 30 題開發集上，RAG 的回答品質有小幅提升，尚未驗證獨立測試集的泛化效果。RAG 提供可追溯來源，引用支持獨立記錄。Step-glide 仍有引用齊全但步驟不足的情況。維持 `evidence-v2`，延後覆蓋性與互補選段優化、獨立新題集及 dense／v2 配對生成對照。Speed-wall 的題面語境限制保留，本輪未再修題或重測。瀏覽器 UI 操作檢查仍待完成。 [完整評估](../evaluations/rag/report.md#week-26-完整-30-題-generation-評分收尾)
