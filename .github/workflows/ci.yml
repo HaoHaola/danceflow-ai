@@ -20,6 +20,8 @@ jobs:
     name: API tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -31,6 +33,25 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Run API tests
         run: python -m pytest -m "not mysql"
+
+  frontend:
+    name: Streamlit frontend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install frontend dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run offline UI tests
+        run: python -m pytest
 
   mysql:
     name: MySQL integration tests

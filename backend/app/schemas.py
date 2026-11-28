@@ -82,3 +82,33 @@ class TrainingPlanListResponse(BaseModel):
     items: list[TrainingPlanResponse]
     limit: int
     offset: int
+
+
+class AskRequest(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+class KnowledgeSource(BaseModel):
+    chunk_id: str
+    source_id: str
+    title: str
+    source_url: str
+    section_index: int | None = None
+    heading_path: list[str] | None = None
+    time_range_ms: tuple[int, int] | None = None
+
+
+class TokenUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    input_tokens_details: dict | None = None
+    output_tokens_details: dict | None = None
+
+
+class AskResponse(BaseModel):
+    answer: str
+    sources: dict[str, KnowledgeSource]
+    model: str
+    usage: TokenUsage | None
+    timings_ms: dict[str, float | None]

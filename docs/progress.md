@@ -94,14 +94,25 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 - 本機資料集與預覽位於 `evaluations/rag/local/week2.2/retrieval-pilot-v1/`。Git 追蹤 `evaluations/rag/retrieval-set-v1.lock.json`，記錄版本及 SHA-256；原文摘錄留在本機。完整標註驗證與固定 Qwen tokenizer 的 154 段計數驗證均通過。[RAG 實驗紀錄](../evaluations/rag/report.md#week-22-收尾與版本鎖定)
 - **Week 2.3 第一階段已驗收**。用鎖定批次離線產出 154 筆 1024 維文件向量，核對 chunk ID 映射、512-token 輸入上限、64-token overlap 預算、有限數值與 L2 norm。重跑通過產物驗證並重用向量。
 - **Week 2.3 第二階段已驗收**。既有 Compose 新增 Qdrant 1.16.3。以固定 client 1.16.2 匯入既有向量，首次、重跑與單獨重啟 Qdrant 後均通過 154 筆 exact count、UUID、向量及來源 payload 驗證。真實 Qdrant synthetic suite 6 passed，非 MySQL suite 120 passed。
-- **Week 2.3 第三階段已驗收**。30 題 exact top-5 全數通過本機 dot product 對照。充分方案成員命中與最小充分方案完成均為 29/30，繁中 15/15、英文 14/15。唯一未完成題只命中 partial。離線 suite 131 passed，真實 Qdrant suite 7 passed、零 skip。Qdrant CI workflow 步驟已本機驗證，GitHub Actions 實際執行結果待補。
+- **Week 2.3 第三階段已驗收**。30 題 exact top-5 全數通過本機 dot product 對照。充分方案成員命中與最小充分方案完成均為 29/30，繁中 15/15、英文 14/15。唯一未完成題只命中 partial。離線 suite 131 passed，真實 Qdrant suite 7 passed、零 skip。Qdrant CI workflow 步驟已本機驗證，遠端結果見下方 Week 2.3 分支交接。
 
 ### Week 2.3 分支交接
 
-- 將已在本機驗收的三階段交付與 Qdrant CI job 整理至 `feature/week2.3-dense-baseline`，供後續審查。現行 workflow 只在 push 到 `main`、以 `main` 為目標的 PR，或手動觸發時執行。單獨推送此 feature branch 不會觸發 CI，遠端測試結果待實際執行後補記。
-- **下次待辦**。先查 `pilot-arm-wave` 的充分證據段在既有 exact 檢索下的排名，再用同一版本的向量與標註比較 `k=5`、`k=10` 的最小充分方案完成率及上下文成本。另存比較結果，保留本輪 top-5 baseline。
+- 將已在本機驗收的三階段交付與 Qdrant CI job 整理至 `feature/week2.3-dense-baseline`，供後續審查。現行 workflow 只在 push 到 `main`、以 `main` 為目標的 PR，或手動觸發時執行。單獨推送此 feature branch 不會觸發 CI。
 
-本輪修改的檔案如下。
+- [PR #6](https://github.com/HaoHaola/danceflow-ai/pull/6) 已用 merge commit `76a0b3e4deaab5469e8bb8a0d9d5eae54c28e7e6` 合併至 `main`，保留 `a845ed9` 的提交歷史。[PR CI](https://github.com/HaoHaola/danceflow-ai/actions/runs/45862328146) 的 API、MySQL、Qdrant 三個 jobs 均通過。Week 2.5 分支已一般合併該版本的 `origin/main`。
+
+## Week 2.4 Reranker 開發評估
+
+- **探索診斷已完成**。固定資料及模型，比較同一次 exact top-10 的 `k=3 / 5 / 10` 前綴。兩項指標均為 28/30、29/30、30/30。Arm Wave 的充分段排第 6，原始 top-5 baseline 已保留。離線 suite 133 passed。
+- **Reranker 開發評估已完成**。Qwen3-Reranker-0.6B 以 MPS／float32 重排固定 top-10。Rerank top-5 的充分方案仍為 29/30，Arm Wave 仍排第 6。Rerank top-3 為 28/30，較同 k dense 救回一題、退步一題。完整流程 P50／P95 為 1.46／2.38 s，保留原 dense baseline。離線 suite 136 passed，結果與回歸案例見 [RAG report](../evaluations/rag/report.md)。
+- **Evidence-v1 instruction 對照已完成**。固定候選與模型，top-3 充分方案由 default 的 28/30 升為 29/30，top-5 維持 29/30。兩種 k 都沒有退步題，Arm Wave 充分段仍第 6。90 筆 rerank P50／P95 為 1.52／2.42 s，尚未重測完整流程。保留原 baseline。
+- **Evidence-v2 簡測**。加入部位與動作順序提醒後，開發集 top-5 完成升為 30/30，Arm Wave 取回充分段。Top-3 降為 28/30，Dime Stop 定義掉到第 4。結果另存，保留 baseline。
+- **BGE 對照已完成**。同批 30 題，top-3 與 top-5 完成均 29/30。單輪 rerank P50／P95 約 0.62／1.08 s，較既有 Qwen 觀測短，選出文字較多。保留現有預設。
+- **Evidence-v3 簡測**。比較題補充單側概念證據提示，在這批題目與 evidence-v2 持平。保留 evidence-v2。
+- **目前採用**。Exact dense top-10 → Qwen3-Reranker-0.6B（`evidence-v2`）→ top-5。開發集取回 Arm Wave 充分段，top-5 兩項指標 30/30，歷史 dense top-5 為 29/30。Evidence-v2 的 rerank P50／P95 為 1.628／2.372 秒，平均選出 5,229.1 字元／1,203.7 代理 tokens。BGE 為 0.624／1.076 秒、5,585.6 字元／1,289.8 代理 tokens，top-5 完成少一題。比較基於同一批開發題及分開的計時輪次。新題 retrieval 尚未驗證。 [指標和決策](../evaluations/rag/report.md#week-24-檢索決策)
+
+Week 2.3 的交付檔案如下。
 
 | 範圍 | 檔案 |
 | --- | --- |
@@ -109,3 +120,39 @@ DF-003 提交前的預設測試為 **33 passed、1 skipped**，隔離 MySQL 測�
 | Qdrant 部署、匯入與 CI | `compose.yaml`、`evaluations/rag/requirements-qdrant.txt`、`evaluations/rag/ingest_qdrant.py`、`backend/tests/test_rag_qdrant_artifact.py`、`.github/workflows/ci.yml` |
 | Dense retrieval 與測試 | `evaluations/rag/evaluate_dense.py`、`backend/tests/test_rag_dense_evaluation.py`、`evaluations/rag/integration/test_qdrant_ingestion.py`（亦涵蓋匯入） |
 | 文件與實驗記錄 | `README.md`、`docs/progress.md`、`docs/development-roadmap.md`、`evaluations/rag/report.md` |
+
+## Week 2.5 單題 RAG CLI
+
+- 使用者已確認 OpenAI smoke test 成功。單題 CLI 沿用鎖定的 154 段和既有 Qdrant collection，以 exact dense top-10、Qwen reranker 的 `evidence-v2` instruction 取 top-5。生成使用 Responses API 和 `week2.5-generation-v1`。
+- 指定 bounce 問題先完成 dry-run，再完成一筆真實請求。兩次來源完全一致，API 回傳 `gpt-6.1-terra`、`completed`、2,798 tokens，CLI 量測總耗時 14.597 秒。引用 [S1]、[S2] 均存在。未執行 30 題生成評估。 [設定、實測與限制](../evaluations/rag/report.md#week-25-單題-rag-cli)
+- API CI job 明確停用 dotenv。以相同 pytest 篩選條件並移除 API key 的本機驗證為 **148 passed、5 deselected**，GitHub Actions 尚待遠端執行。
+
+- **五題 generation 評估已鎖定**。使用者於 2026-11-27 確認 `week2.5-generation-pilot-v1-approved.1`。共用品質分與 RAG 引用檢查各自記錄。
+- **成對生成完成**。五題各跑一次 RAG 與 LLM-only，10 筆均 completed，共 13,354 tokens。逐題原始回答、完整來源、使用量及耗時保存在 `evaluations/rag/local/week2.5/generation-pairs-v1-approved.1/`，人工對照從該目錄的 `review.md` 開始。
+- **目前離線驗證**。API job 同條件為 151 passed、5 MySQL 測試 deselected。這批變更的遠端 CI 尚未執行。
+- **五題評分完成**。ChatGPT 協助審查，使用者於對話確認。兩種模式各五題，三項全部 2／2／2。這批 pilot 分數未呈現 RAG 品質提升。RAG 提供可追溯依據，補充例子仍需核對歸屬。評分與理由另存同目錄的 `scores-v1.json` 及 `review.md`。
+- **FastAPI 問答 endpoint 已驗證**。`POST /api/v1/knowledge/ask` 共用 CLI 的 RAG service，首個有效請求驗證並載入模型，後續在同一程序重用。Swagger 與 OpenAPI 路由已確認。一次真實 HTTP 請求回 200，使用 2,850 tokens，客戶端耗時 23.099 秒。獨立結果在 `evaluations/rag/local/week2.5/api-smoke-v1.json`。
+- **Endpoint 離線驗證**。167 passed、5 MySQL 測試 deselected。當時未量測真實 warm request，後續 Streamlit 驗證見下方。完整 30 題 generation 與此分支遠端 CI 仍待執行。
+- **Knowledge API schema 歸位**。四個問答 Pydantic models 移至 `backend/app/schemas.py`，路由與 runtime 維持在 `knowledge.py`。搬移前後 OpenAPI 一致。離線回歸 167 passed、5 MySQL 測試 deselected，無 key 時 `/health` 回 200、問答回 503，且未載入 RAG runtime。
+
+- **Streamlit 單題問答介面已完成**。繁中介面接受中英文題目，表單提交後透過 HTTP 呼叫既有問答 API。回答引用與其他取回來源分開，執行資訊可展開，Session State 保存成功結果。
+- **Streamlit 離線與本機驗證**。前端 AppTest 9 passed，backend 非 MySQL 167 passed、5 deselected。獨立前端 CI job 已配置，遠端未執行。Streamlit 頁面及 backend health 回 200。AppTest 經真實 HTTP 對同一 backend 程序送兩筆問答，首筆與後續的 HTTP 耗時為 21.645／8.932 秒，均回 200 並確認完整回答與五筆來源可顯示。未操作瀏覽器 UI。完整結果在 `evaluations/rag/local/week2.5/streamlit-smoke-v1.json`。
+
+### Week 2.5 本機串接 checkpoint
+
+五題 pilot 評分、真實 FastAPI HTTP smoke，以及 Streamlit AppTest 連真實 backend 的冷／熱請求驗證均已完成。這批 pilot 的兩種模式三項皆為 2／2／2，未呈現 RAG 的品質分數提升。瀏覽器 UI 操作與完整 30 題 generation 評估待完成。原始評估與 smoke 產物留在 Git 忽略的本機目錄。
+
+## Week 2.6 Generation 標註擴充
+
+- 以鎖定的 `week2.2-retrieval-set-v1` 建立獨立版本 `week2.6-generation-annotations-v1`。原五題沿用 `week2.5-generation-pilot-v1-approved.1`，其餘 25 題的題文與語言保留，新增標註皆為 `needs_review`。
+- 逐題審查從本機 `evaluations/rag/local/week2.6/generation-annotations-v1/review.md` 開始。新稿區分教材明示、合理推論和自行設計練習。離線核對 30 題、28 個新增證據錨點、115 筆 block/cue 定位及 225 個新增評分錨點。
+- 下一步為人工審查新增 25 題的必答界線、可接受替代與證據歸屬。30 題生成與評分尚未執行。
+- **30 題 generation 標註定稿**。使用者於 2026-11-27（Asia/Taipei）核准新增 25 題，原五題沿用 pilot 核准。核准版為 `week2.6-generation-annotations-v1-approved.1`，存於本機 `evaluations/rag/local/week2.6/generation-annotations-v1-approved.1/`。原草稿保留。完整 30 題 generation、品質評分與回答引用檢查尚未執行。
+- **新增 25 題成對生成完成**。2026-11-27 使用核准版 `week2.6-generation-annotations-v1-approved.1`，RAG／LLM-only 各跑 25 筆，50 筆均 completed，零失敗、零截斷，共 55,597 tokens。原五題沿用 Week 2.5 原始批次，未重跑。
+- 新批次的逐題對照、逐筆 JSON 與用量／耗時彙整位於本機 `evaluations/rag/local/week2.6/generation-pairs-v1-approved.1/`。下一步為新增 25 題的人工品質評分與引用檢查。機械引用編號檢查未發現表外編號，人工欄仍留空。
+- **八點 body wave 題目已原位修訂並重測**。2026-11-28 維持相同 ID，改評估從單點到分段再到全段的拆練與膝間跨側。既有 corpus／embeddings／Qdrant 沿用。新版 dense top-5 找齊兩段必要證據，rerank top-5 漏了 isolation 段。只重跑 wave 的兩個模式，均 completed；舊 wave 回答已由本機新版結果取代。現行 30 題合計 69,720 tokens，歷次評估生成合計 71,370 tokens。人工評分及引用判定仍待執行。
+- **Wave 修訂後的 reranker 開發對照完成**。30 題皆重新檢索並共用候選，單一新候選 `evidence-v3-practice` 未將 wave 所需 `0010` 移入前五，仍排第 6。Top-5 充分方案為 dense 29/30、v2 29/30、v3 28/30。v3 較 v2 少 Arm Wave 一題，warm rerank 也較慢。本輪保留 v2 預設，生成回答與 prompt 維持原樣。 [完整結果](../evaluations/rag/report.md#week-26-修訂題庫的-evidence-v3-practice-對照)
+- **七題題面與標註原位修訂及重測完成**。同一 30 題、繁中／英文各 15 題。七題的新題面依使用者授權，標註細則仍待人工審查。重新計算 30 題 query 並比較 dense／v2。兩者 top-5 的充分方案皆為 29/30，v2 救回 Arm Wave、漏掉 body wave。七題各跑兩模式一次，14/14 完成，其餘 46 筆雜湊一致。現行 60 筆 70,940 tokens，歷次評估 API 76 次、89,452 tokens。本輪結果的人評及引用判定留空，待新一輪審查。交接 ZIP 存於本機 `evaluations/rag/local/week2.6/DanceFlow-Week2.6-seven-amended-human-review.zip`。
+
+- **Week 2.6 完成：30 題 generation 評估與審查收尾**。依 `DanceFlow-Week2.6-final-review.zip` 回填獨立品質與引用紀錄。ChatGPT 協助審查，使用者核定特定裁決。RAG C／R／A 為 **60／59／59**（178/180），LLM-only 為 **58／56／58**（172/180）。配對 3／1／26 為 RAG 較高／LLM-only 較高／同分。180 個品質分數均已填，60 筆原始回答雜湊一致。完整逐題對照在本機 `evaluations/rag/local/week2.6/generation-pairs-v1-approved.1/review.md`。
+- **判讀與待辦**。在這組 30 題開發集上，RAG 的回答品質有小幅提升，尚未驗證獨立測試集的泛化效果。RAG 提供可追溯來源，引用支持獨立記錄。Step-glide 仍有引用齊全但步驟不足的情況。維持 `evidence-v2`，延後覆蓋性與互補選段優化、獨立新題集及 dense／v2 配對生成對照。Speed-wall 的題面語境限制保留，本輪未再修題或重測。瀏覽器 UI 操作檢查仍待完成。 [完整評估](../evaluations/rag/report.md#week-26-完整-30-題-generation-評分收尾)

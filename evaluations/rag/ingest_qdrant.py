@@ -45,9 +45,21 @@ def load_batch(artifact, chunks, inputs):
         raise ValueError("Expected 154 unique locked chunk IDs")
     manifest = embed_batch.release.read(artifact / "manifest.json")
     configuration = manifest["configuration"]
-    for key, expected in {**EMBEDDING_SPEC, "inputs": inputs}.items():
+    for key, expected in EMBEDDING_SPEC.items():
         if key not in configuration or configuration[key] != expected:
             raise ValueError(f"Embedding manifest has incompatible {key}")
+    artifact_inputs = configuration.get("inputs", {})
+    artifact_release = artifact_inputs.get("release", {})
+    release = inputs["release"]
+    if artifact_inputs != inputs:
+        # Question-only amendments can pin the original embedding release.
+        release_digest = hashlib.sha256(embed_batch.json_bytes(artifact_release)).hexdigest()
+        if (
+            artifact_inputs.get("corpus") != inputs["corpus"]
+            or not release.get("embedding_release_sha256")
+            or release_digest != release["embedding_release_sha256"]
+        ):
+            raise ValueError("Embedding manifest has incompatible inputs")
     fingerprint = hashlib.sha256(embed_batch.json_bytes([configuration, chunk_ids])).hexdigest()
     if artifact.name != fingerprint:
         raise ValueError("Embedding artifact directory fingerprint differs")
@@ -56,7 +68,7 @@ def load_batch(artifact, chunks, inputs):
         "payload_schema_version": 1,
         "model": configuration["model"],
         "revision": configuration["revision"],
-        "release_version": inputs["release"]["release_version"],
+        "release_version": artifact_release["release_version"],
         "batch_summary_sha256": inputs["corpus"]["batch_summary_sha256"],
         "embedding_fingerprint": fingerprint,
         "vectors_sha256": manifest["vectors_sha256"],

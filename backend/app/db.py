@@ -1,14 +1,14 @@
 import os
 import sys
 from collections.abc import Iterator
-from pathlib import Path
 from threading import Lock
 
-from dotenv import load_dotenv
 from sqlalchemy import URL, create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import load_local_env
 
 
 _session_factory: sessionmaker[Session] | None = None
@@ -16,7 +16,7 @@ _session_factory_lock = Lock()
 
 
 def create_db_engine() -> Engine:
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    load_local_env()
 
     required = ("MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD")
     missing = [name for name in required if not os.getenv(name)]
